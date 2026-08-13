@@ -1,6 +1,7 @@
 #include "cysnic/tracker.hpp"
 #include <iostream>
 #include <cmath>
+#include <fftw3.h>
 
 namespace cysnic {
 
@@ -148,10 +149,83 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
     currentTarget.logPolar_initial.convertTo(initial64f, CV_64F);
     logPolar_current.convertTo(current64f, CV_64F);
 
-    cv::Point2d shift = cv::phaseCorrelate(initial64f, current64f);
+    // FFTW3 Phase Correlation
+    int rows = initial64f.rows;
+    int cols = initial64f.cols;
+    int N = rows * cols;
+
+    fftw_complex *in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex *in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex *out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex *out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex *cross = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_complex *spatial = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+
+    fftw_plan p1 = fftw_plan_dft_2d(rows, cols, in1, out1, FFTW_FORWARD, FFTW_ESTIMATE);
+    fftw_plan p2 = fftw_plan_dft_2d(rows, cols, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE);
+    fftw_plan p3 = fftw_plan_dft_2d(rows, cols, cross, spatial, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+    // Load data and apply Hann window
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            double val1 = initial64f.at<double>(r, c);
+            double val2 = current64f.at<double>(r, c);
+            
+            // Hann window
+            double wy = 0.5 * (1 - cos(2 * M_PI * r / (rows - 1.0)));
+            double wx = 0.5 * (1 - cos(2 * M_PI * c / (cols - 1.0)));
+            double w = wy * wx;
+            
+            in1[r * cols + c][0] = val1 * w;
+            in1[r * cols + c][1] = 0.0;
+            in2[r * cols + c][0] = val2 * w;
+            in2[r * cols + c][1] = 0.0;
+        }
+    }
+
+    fftw_execute(p1);
+    fftw_execute(p2);
+
+    // Cross-power spectrum
+    for (int i = 0; i < N; i++) {
+        double r1 = out1[i][0], i1 = out1[i][1];
+        double r2 = out2[i][0], i2 = out2[i][1];
+        
+        double cr = r1 * r2 + i1 * i2;
+        double ci = i1 * r2 - r1 * i2;
+        double mag = sqrt(cr * cr + ci * ci) + 1e-5;
+        
+        cross[i][0] = cr / mag;
+        cross[i][1] = ci / mag;
+    }
+
+    fftw_execute(p3);
+
+    // Find peak
+    double max_val = -1e9;
+    int max_r = 0, max_c = 0;
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            double val = spatial[r * cols + c][0];
+            if (val > max_val) {
+                max_val = val;
+                max_r = r;
+                max_c = c;
+            }
+        }
+    }
+
+    double shift_y = max_r > rows / 2 ? max_r - rows : max_r;
+    double shift_x = max_c > cols / 2 ? max_c - cols : max_c;
+
+    fftw_destroy_plan(p1);
+    fftw_destroy_plan(p2);
+    fftw_destroy_plan(p3);
+    fftw_free(in1); fftw_free(in2); fftw_free(out1); 
+    fftw_free(out2); fftw_free(cross); fftw_free(spatial);
     
-    // The Y shift in log-polar corresponds to rotation in degrees (scaled by M)
-    double angle = shift.y * 360.0 / logPolar_current.rows;
+    // The Y shift in log-polar corresponds to rotation in degrees
+    double angle = shift_y * 360.0 / rows;
     return angle;
 }
 

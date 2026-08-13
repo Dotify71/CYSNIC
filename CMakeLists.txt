@@ -24,11 +24,21 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tbb)
 
-include_directories(${OpenCV_INCLUDE_DIRS} include)
+# FFTW requires CMake 3.0+ but it works via FetchContent if we disable tests
+set(ENABLE_THREADS ON CACHE BOOL "" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  fftw
+  GIT_REPOSITORY https://github.com/FFTW/fftw3.git
+  GIT_TAG        fftw-3.3.10
+)
+FetchContent_MakeAvailable(fftw)
+
+include_directories(${OpenCV_INCLUDE_DIRS} include ${fftw_SOURCE_DIR}/api)
 
 add_executable(cysnic_tracker 
     src/main.cpp
     src/tracker.cpp
 )
 
-target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb)
+target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3)
