@@ -38,8 +38,15 @@ int main(int argc, char** argv) {
             break; // Stop selecting if empty ROI is chosen or space is pressed
         }
         
+        cv::Mat grayFrame;
+        if (frame.channels() == 3) {
+            cv::cvtColor(frame, grayFrame, cv::COLOR_BGR2GRAY);
+        } else {
+            grayFrame = frame;
+        }
+        
         auto tracker = std::make_unique<cysnic::TargetTracker>();
-        tracker->init(frame, roi, targetId++);
+        tracker->init(grayFrame, roi, targetId++);
         trackers.push_back(std::move(tracker));
         
         // Draw the ROI on frame to show what has been selected
@@ -56,11 +63,18 @@ int main(int argc, char** argv) {
     while (cap.read(frame)) {
         if (frame.empty()) break;
 
+        cv::Mat grayFrame;
+        if (frame.channels() == 3) {
+            cv::cvtColor(frame, grayFrame, cv::COLOR_BGR2GRAY);
+        } else {
+            grayFrame = frame;
+        }
+
         // Process all trackers in parallel
         std::vector<std::future<std::optional<cv::Rect2d>>> futures;
         for (auto& tracker : trackers) {
-            futures.push_back(std::async(std::launch::async, [&tracker, &frame]() {
-                return tracker->update(frame);
+            futures.push_back(std::async(std::launch::async, [&tracker, grayFrame]() {
+                return tracker->update(grayFrame);
             }));
         }
 
