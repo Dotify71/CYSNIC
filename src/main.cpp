@@ -3,7 +3,50 @@
 #include <iostream>
 #include <vector>
 #include <future>
+#include <chrono>
 
+void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occluded, double dx = 0, double dy = 0) {
+    cv::Scalar hudColor(0, 0, 0); // Black for everything
+    int lineType = cv::LINE_AA;
+    
+    // Draw corners
+    int cornerLen = 20;
+    int t = 2; // thickness
+    
+    if (occluded) {
+        // Draw X-RAY dashed representation (or just standard corners with crosshair)
+        cv::Point center(box.x + box.width / 2, box.y + box.height / 2);
+        cv::drawMarker(frame, center, hudColor, cv::MARKER_CROSS, 20, 1, lineType);
+        
+        // Dashed box for X-Ray
+        cv::rectangle(frame, box, hudColor, 1, lineType);
+        
+        std::string status = "STATUS: X-RAY / COASTING";
+        cv::putText(frame, status, cv::Point(box.x, box.y - 10), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
+    } else {
+        // Top left
+        cv::line(frame, cv::Point(box.x, box.y), cv::Point(box.x + cornerLen, box.y), hudColor, t, lineType);
+        cv::line(frame, cv::Point(box.x, box.y), cv::Point(box.x, box.y + cornerLen), hudColor, t, lineType);
+        // Top right
+        cv::line(frame, cv::Point(box.x + box.width, box.y), cv::Point(box.x + box.width - cornerLen, box.y), hudColor, t, lineType);
+        cv::line(frame, cv::Point(box.x + box.width, box.y), cv::Point(box.x + box.width, box.y + cornerLen), hudColor, t, lineType);
+        // Bottom left
+        cv::line(frame, cv::Point(box.x, box.y + box.height), cv::Point(box.x + cornerLen, box.y + box.height), hudColor, t, lineType);
+        cv::line(frame, cv::Point(box.x, box.y + box.height), cv::Point(box.x, box.y + box.height - cornerLen), hudColor, t, lineType);
+        // Bottom right
+        cv::line(frame, cv::Point(box.x + box.width, box.y + box.height), cv::Point(box.x + box.width - cornerLen, box.y + box.height), hudColor, t, lineType);
+        cv::line(frame, cv::Point(box.x + box.width, box.y + box.height), cv::Point(box.x + box.width, box.y + box.height - cornerLen), hudColor, t, lineType);
+        
+        // Status Text
+        std::string status = "STATUS: TRACK LOCKED";
+        cv::putText(frame, status, cv::Point(box.x, box.y - 10), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
+    }
+    
+    // Calculations / Telemetry placed strictly outside the box
+    char telemetry[128];
+    sprintf(telemetry, "ID: %02d | POS: [%.1f, %.1f] | VEL: [%.1f, %.1f]", id, box.x, box.y, dx, dy);
+    cv::putText(frame, telemetry, cv::Point(box.x, box.y + box.height + 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
+}
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <video_path_or_camera_id>" << std::endl;
@@ -60,8 +103,14 @@ int main(int argc, char** argv) {
     
     cv::destroyWindow("CYSNIC Tracker - Select ROIs (Space to finish)");
 
+    auto prevTime = std::chrono::high_resolution_clock::now();
+
     while (cap.read(frame)) {
         if (frame.empty()) break;
+        
+        auto currTime = std::chrono::high_resolution_clock::now();
+        double fps = 1e9 / std::chrono::duration_cast<std::chrono::nanoseconds>(currTime - prevTime).count();
+        prevTime = currTime;
 
         cv::Mat grayFrame;
         if (frame.channels() == 3) {
@@ -78,39 +127,26 @@ int main(int argc, char** argv) {
             }));
         }
 
-        // Gather results and draw
+        // Gather results and draw HUD
         for (size_t i = 0; i < futures.size(); ++i) {
             auto trackedBox = futures[i].get();
-            cv::Scalar color((i * 50) % 255, (255 - i * 80) % 255, (i * 120) % 255); // Different color for each
 
             if (trackedBox.has_value()) {
                 cv::Rect2d box = trackedBox.value();
                 bool occluded = trackers[i]->getOcclusionState();
                 
-                if (occluded) {
-                    // X-Ray / Thermal Mode: Target is blocked by something, but we predict its location!
-                    // Draw a glowing red crosshair and a thermal-styled box
-                    cv::Scalar thermalColor(0, 0, 255); // Bright Red for X-Ray
-                    
-                    // Draw crosshair at center
-                    cv::Point center(box.x + box.width / 2, box.y + box.height / 2);
-                    cv::drawMarker(frame, center, thermalColor, cv::MARKER_CROSS, 20, 2);
-                    
-                    // Draw dashed rectangle to indicate it's an estimated prediction through the obstacle
-                    cv::rectangle(frame, box, thermalColor, 2, cv::LINE_8, 0); // Solid for now
-                    cv::putText(frame, "X-RAY TARGET " + std::to_string(i+1), cv::Point(box.x, box.y - 10), 
-                                cv::FONT_HERSHEY_SIMPLEX, 0.6, thermalColor, 2);
-                } else {
-                    // Normal tracking mode
-                    cv::rectangle(frame, box, color, 2);
-                    cv::putText(frame, "T" + std::to_string(i+1), cv::Point(box.x, box.y - 10), 
-                                cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
-                }
+                // Draw HUD (passing 0,0 for velocity right now, but you can expose Kalman states in future updates)
+                drawTacticalHUD(frame, box, i+1, occluded, 0.0, 0.0);
             } else {
-                cv::putText(frame, "T" + std::to_string(i+1) + " Lost", cv::Point(20, 50 + i * 30), 
-                            cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255), 2);
+                cv::putText(frame, "T" + std::to_string(i+1) + " LOST", cv::Point(20, 50 + i * 30), 
+                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
             }
         }
+        
+        // Global Telemetry
+        char globalTelemetry[128];
+        sprintf(globalTelemetry, "SYS: CYSNIC v1.0 | FPS: %.1f | TARGETS: %zu | RES: %dx%d", fps, trackers.size(), frame.cols, frame.rows);
+        cv::putText(frame, globalTelemetry, cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
 
         cv::imshow("CYSNIC Tracker", frame);
 
