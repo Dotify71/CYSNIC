@@ -18,17 +18,15 @@ struct FftwState {
 
     FftwState() = default;
     ~FftwState() {
-        if (initialized) {
-            if (p1) fftw_destroy_plan(p1);
-            if (p2) fftw_destroy_plan(p2);
-            if (p3) fftw_destroy_plan(p3);
-            if (in1) fftw_free(in1);
-            if (in2) fftw_free(in2);
-            if (out1) fftw_free(out1);
-            if (out2) fftw_free(out2);
-            if (cross) fftw_free(cross);
-            if (spatial) fftw_free(spatial);
-        }
+        if (p1) fftw_destroy_plan(p1);
+        if (p2) fftw_destroy_plan(p2);
+        if (p3) fftw_destroy_plan(p3);
+        if (in1) fftw_free(in1);
+        if (in2) fftw_free(in2);
+        if (out1) fftw_free(out1);
+        if (out2) fftw_free(out2);
+        if (cross) fftw_free(cross);
+        if (spatial) fftw_free(spatial);
     }
     
     // Disable copying
@@ -99,6 +97,9 @@ public:
     }
     cv::Rect2d getBoundingBox() const { return currentTarget.boundingBox; }
 
+    // Physics gating logic (exposed for deterministic testing)
+    bool checkPhysicsGating(const cv::Rect2d& newBox);
+
 private:
     cv::Ptr<cv::Tracker> cvTracker;
     TrackTarget currentTarget;
@@ -106,11 +107,10 @@ private:
     bool isOccluded = false;
     double psrThreshold = 0.5; // Example threshold
     
-    // Physics gating
+    // Internal KF math
     void setupKalmanFilter();
     void predictKF();
     void correctKF(const Eigen::Vector2f& measurement);
-    bool checkPhysicsGating(const cv::Rect2d& newBox);
     
     // Rotation Recovery
     double recoverRotation(const cv::Mat& currentFrame, const cv::Rect2d& box);

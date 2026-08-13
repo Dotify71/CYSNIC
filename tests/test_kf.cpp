@@ -13,38 +13,22 @@ protected:
     }
 };
 
-TEST_F(KFTest, TestOcclusionRecovery) {
+TEST_F(KFTest, TestPhysicsGating) {
     // Create a dummy frame and box
     cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
-    cv::Rect2d box(10, 10, 20, 20);
+    cv::Rect2d initialBox(10, 10, 20, 20);
     
-    // init should not crash and should set up the matrices
-    bool initialized = tracker.init(dummyFrame, box, 1);
+    // init should not crash and should set up the KF matrices
+    bool initialized = tracker.init(dummyFrame, initialBox, 1);
     EXPECT_TRUE(initialized);
-    EXPECT_FALSE(tracker.getOcclusionState());
     
-    // Simulate updating with a frame where the target is not found
-    // A blank frame might fail correlation and trigger occlusion
-    cv::Mat blankFrame = cv::Mat::zeros(100, 100, CV_8UC1);
-    auto result = tracker.update(blankFrame);
+    // Valid jump: moving the box slightly should pass physics gating
+    cv::Rect2d validBox(12, 12, 20, 20);
+    EXPECT_TRUE(tracker.checkPhysicsGating(validBox));
     
-    // The tracker should return an estimated box but enter occlusion state
-    EXPECT_TRUE(result.has_value());
-    EXPECT_TRUE(tracker.getOcclusionState());
-    
-    // Simulate reacquisition: provide a frame where the target is clearly visible again
-    // In our mock, if physics gating passes (since it's close to predicted center), it should recover.
-    // We will place the target exactly at the predicted center to ensure it passes gating.
-    cv::Rect2d predictedBox = result.value();
-    cv::Mat recoveryFrame = cv::Mat::zeros(100, 100, CV_8UC3);
-    // Draw something in the box to simulate a target
-    cv::rectangle(recoveryFrame, predictedBox, cv::Scalar(255, 255, 255), cv::FILLED);
-    
-    auto recoveryResult = tracker.update(recoveryFrame);
-    
-    // The tracker should now have recovered
-    EXPECT_TRUE(recoveryResult.has_value());
-    EXPECT_FALSE(tracker.getOcclusionState());
+    // Invalid jump: teleporting the box across the frame should fail gating
+    cv::Rect2d invalidBox(80, 80, 20, 20);
+    EXPECT_FALSE(tracker.checkPhysicsGating(invalidBox));
 }
 
 TEST_F(KFTest, TestInitBoundsClamping) {

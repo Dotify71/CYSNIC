@@ -42,7 +42,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-# GoogleTest for EKF math validation
+# GoogleTest for KF math validation
 FetchContent_Declare(
   googletest
   GIT_REPOSITORY https://github.com/google/googletest.git

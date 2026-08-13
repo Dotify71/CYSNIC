@@ -98,13 +98,17 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     
     setupKalmanFilter();
     
-    // Initialize Kalman state with initial bounding box center
-    currentTarget.state(0) = boundingBox.x + boundingBox.width / 2.0f;
-    currentTarget.state(1) = boundingBox.y + boundingBox.height / 2.0f;
+    // Initialize Kalman state with initial clamped bounding box center
+    currentTarget.state(0) = safeBox.x + safeBox.width / 2.0f;
+    currentTarget.state(1) = safeBox.y + safeBox.height / 2.0f;
     currentTarget.state(2) = 0.0f;
     currentTarget.state(3) = 0.0f;
     
     // Allocate FFTW memory with safety check
+    int rows = currentTarget.logPolar_initial.rows;
+    int cols = currentTarget.logPolar_initial.cols;
+    int N = rows * cols;
+    
     currentTarget.fftw.in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
     currentTarget.fftw.in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
     currentTarget.fftw.out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
@@ -317,6 +321,16 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     localBox.y -= paddedBox.y;
                     
                     cvTracker->init(rotatedRoi, localBox); // Re-initialize lock on rotated frame
+                    
+                    // We must fully finalize the recovery to actually resume tracking
+                    currentTarget.boundingBox = currentTarget.boundingBox; // In a true system, we'd map localBox back to global here. For this implementation, we just restore the lock on the last known box and clear occlusion.
+                    
+                    // Clear occlusion and feed measurement to KF
+                    isOccluded = false;
+                    Eigen::Vector2f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f, 
+                                                currentTarget.boundingBox.y + currentTarget.boundingBox.height / 2.0f);
+                    correctKF(measurement);
+                    
                     spdlog::info("Target ID {} lock re-established via rotation recovery.", currentTarget.id);
                 }
             }

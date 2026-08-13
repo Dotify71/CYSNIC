@@ -112,8 +112,13 @@ int main(int argc, char** argv) {
         }
         
         auto tracker = std::make_unique<cysnic::TargetTracker>();
-        tracker->init(grayFrame, roi, targetId++);
-        trackers.push_back(std::move(tracker));
+        if (tracker->init(grayFrame, roi, targetId)) {
+            trackers.push_back(std::move(tracker));
+            targetId++;
+        } else {
+            spdlog::warn("Failed to initialize tracker for ROI. Discarding.");
+            continue;
+        }
         
         // Draw the ROI on frame to show what has been selected
         cv::rectangle(frame, roi, cv::Scalar(255, 0, 0), 2);
