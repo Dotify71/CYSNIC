@@ -2,6 +2,7 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/video/tracking.hpp>
 #include <Eigen/Dense>
 #include <fftw3.h>
 #include <spdlog/spdlog.h>
@@ -58,7 +59,7 @@ struct TrackTarget {
     Eigen::Matrix<float, 6, 6> Q; // Process noise covariance
     Eigen::Matrix<float, 4, 4> R; // Measurement noise covariance (x, y, w, h)
     
-    double correlationPeak; // Raw normalized phase-correlation peak
+    double psr; // True Peak-to-Sidelobe Ratio
     bool isOccluded;
     
     // FFTW specific state using RAII
@@ -68,7 +69,8 @@ struct TrackTarget {
     cv::Mat initial_frame; 
     cv::Mat logPolar_initial;
 
-    TrackTarget(int id, const cv::Rect2d& box) : id(id), boundingBox(box), isOccluded(false), correlationPeak(0.0) {}
+    TrackTarget() = default;
+    TrackTarget(int id, const cv::Rect2d& box) : id(id), boundingBox(box), isOccluded(false), psr(0.0) {}
 };
 
 // Interface for tracking backend to allow mock injection
@@ -112,7 +114,9 @@ private:
     TrackTarget currentTarget;
     
     bool isOccluded = false;
-    double peakThreshold = 0.5; // Threshold for accepting rotation recovery
+    double occlusionDuration = 0.0;
+    const double maxOcclusionTime = 2.0; // 2 seconds
+    double psrThreshold = 10.0; // PSR Threshold for accepting rotation recovery
     
     // Internal KF math and physics gating
     void setupKalmanFilter();

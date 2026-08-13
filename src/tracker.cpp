@@ -58,6 +58,11 @@ void TargetTracker::predictKF(double dt) {
     
     // Predict covariance: P = F * P * F^T + Q
     currentTarget.P = F * currentTarget.P * F.transpose() + currentTarget.Q;
+    
+    // Cap covariance growth to prevent unbounded gating acceptance during long occlusions
+    const float maxVariance = 1000.0f;
+    if (currentTarget.P(0,0) > maxVariance) currentTarget.P(0,0) = maxVariance;
+    if (currentTarget.P(1,1) > maxVariance) currentTarget.P(1,1) = maxVariance;
 }
 
 void TargetTracker::correctKF(const Eigen::Vector4f& measurement) {
@@ -274,7 +279,27 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
 
     double shift_y = max_r > rows / 2 ? max_r - rows : max_r;
     
-    currentTarget.correlationPeak = max_val; // Store raw phase correlation peak
+    // Calculate True Peak-to-Sidelobe Ratio (PSR)
+    double sum = 0.0;
+    double sum_sq = 0.0;
+    int count = 0;
+    const int window = 5; // 11x11 exclusion window around peak
+    
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            if (std::abs(r - max_r) <= window && std::abs(c - max_c) <= window) continue;
+            double val = currentTarget.fftw.spatial[r * cols + c][0];
+            sum += val;
+            sum_sq += val * val;
+            count++;
+        }
+    }
+    
+    double mean = sum / count;
+    double stddev = std::sqrt(std::max(0.0, (sum_sq / count) - (mean * mean))) + 1e-5;
+    double psr = (max_val - mean) / stddev;
+    
+    currentTarget.psr = psr;
     
     // The Y shift in log-polar corresponds to rotation in degrees
     double angle = shift_y * 360.0 / rows;
@@ -296,8 +321,16 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
     if (!found) {
         if (!isOccluded) {
             spdlog::warn("Target ID {} occluded! Switching to X-Ray KF Prediction.", currentTarget.id);
+            occlusionDuration = 0.0;
         }
         isOccluded = true;
+        occlusionDuration += dt;
+        
+        if (occlusionDuration > maxOcclusionTime) {
+            spdlog::error("Target ID {} track lost (maximum occlusion time exceeded).", currentTarget.id);
+            return std::nullopt; // Explicitly drop the track
+        }
+        
         // If occluded, use Kalman prediction as the box location (allowing growth/shrinkage)
         newBox.width = predictedWidth;
         newBox.height = predictedHeight;
@@ -314,6 +347,7 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
         if (checkPhysicsGating(newBox)) {
             spdlog::info("Target ID {} recovered from occlusion!", currentTarget.id);
             isOccluded = false;
+            occlusionDuration = 0.0;
             currentTarget.boundingBox = newBox;
             Eigen::Vector4f measurement(newBox.x + newBox.width / 2.0f, newBox.y + newBox.height / 2.0f, newBox.width, newBox.height);
             correctKF(measurement);
@@ -321,8 +355,8 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
         } else {
             // Attempt rotation recovery with FFTW if physics gating still fails
             double angleShift = recoverRotation(frame, currentTarget.boundingBox);
-            if (currentTarget.correlationPeak < peakThreshold) {
-                spdlog::debug("Rotation recovery rejected: low peak ({:.2f} < {:.2f})", currentTarget.correlationPeak, peakThreshold);
+            if (currentTarget.psr < psrThreshold) {
+                spdlog::debug("Rotation recovery rejected: low PSR ({:.2f} < {:.2f})", currentTarget.psr, psrThreshold);
                 return currentTarget.boundingBox;
             }
             if (std::abs(angleShift) > 5.0) {
@@ -376,7 +410,8 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;
-                    Eigen::Vector4f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f, 
+                    occlusionDuration = 0.0;
+                    Eigen::Vector4f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f,  
                                                 currentTarget.boundingBox.y + currentTarget.boundingBox.height / 2.0f,
                                                 currentTarget.boundingBox.width, currentTarget.boundingBox.height);
                     correctKF(measurement);
@@ -397,6 +432,7 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
     
     // Target is valid and passes physics check
     isOccluded = false;
+    occlusionDuration = 0.0;
     currentTarget.boundingBox = newBox;
     
     // Correct Eigen KF with new measurement
@@ -408,6 +444,7 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
 
 void TargetTracker::reset() {
     isOccluded = false;
+    occlusionDuration = 0.0;
 }
 
 } // namespace cysnic
