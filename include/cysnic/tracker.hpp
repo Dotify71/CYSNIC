@@ -13,7 +13,7 @@ namespace cysnic {
 
 struct TrackTarget {
     int id;
-    cv::Rect2d bounding_box;
+    cv::Rect2d boundingBox; // Ensure this matches implementation
     
     // Eigen-based EKF State (x, y, dx, dy)
     Eigen::Vector4f state;
@@ -37,6 +37,12 @@ class TargetTracker {
 public:
     TargetTracker();
     ~TargetTracker();
+
+    // Rule of Five to safely manage FFTW raw pointers
+    TargetTracker(const TargetTracker&) = delete;
+    TargetTracker& operator=(const TargetTracker&) = delete;
+    TargetTracker(TargetTracker&&) noexcept = delete;
+    TargetTracker& operator=(TargetTracker&&) noexcept = delete;
 
     // Initialize the tracker with the first frame and a bounding box
     bool init(const cv::Mat& frame, const cv::Rect2d& boundingBox, int targetId = 1);
@@ -62,12 +68,10 @@ private:
     double psrThreshold = 0.5; // Example threshold
     
     // Physics gating
-    bool checkPhysicsGating(const cv::Rect2d& newBox);
     void setupKalmanFilter();
-    
-    // EKF Core Math
-    void predictEKF();
-    void correctEKF(const Eigen::Vector2f& measurement);
+    void predictKF();
+    void correctKF(const Eigen::Vector2f& measurement);
+    bool checkPhysicsGating(const cv::Rect2d& newBox);
     
     // Rotation Recovery
     double recoverRotation(const cv::Mat& currentFrame, const cv::Rect2d& box);

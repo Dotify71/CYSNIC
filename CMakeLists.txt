@@ -54,7 +54,7 @@ FetchContent_MakeAvailable(googletest)
 include_directories(${OpenCV_INCLUDE_DIRS} include ${fftw_SOURCE_DIR}/api)
 
 # Military-Grade Compiler Flags
-set(MIL_FLAGS "-Wall -Wextra -Wpedantic -Werror -O3 -march=native")
+set(MIL_FLAGS -Wall -Wextra -Wpedantic -Werror -O3 -march=native)
 
 add_executable(cysnic_tracker 
     src/main.cpp
@@ -65,7 +65,7 @@ target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3
 
 # Tests
 enable_testing()
-add_executable(cysnic_tests tests/test_ekf.cpp src/tracker.cpp)
+add_executable(cysnic_tests tests/test_kf.cpp src/tracker.cpp)
 target_compile_options(cysnic_tests PRIVATE ${MIL_FLAGS})
 target_link_libraries(cysnic_tests gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog)
 include(GoogleTest)

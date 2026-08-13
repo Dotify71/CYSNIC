@@ -5,7 +5,7 @@
 
 using namespace cysnic;
 
-class EKFTest : public ::testing::Test {
+class KFTest : public ::testing::Test {
 protected:
     TargetTracker tracker;
     void SetUp() override {
@@ -13,11 +13,7 @@ protected:
     }
 };
 
-TEST_F(EKFTest, TestKalmanPrediction) {
-    // We cannot call predictEKF directly since it's private, but we can test the Eigen matrix behavior
-    // This represents a unit test that would normally be implemented inside a Test Fixture or friend class
-    // For now, we instantiate the tracker to ensure it compiles with Eigen and TBB
-    
+TEST_F(KFTest, TestOcclusionRecovery) {
     // Create a dummy frame and box
     cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
     cv::Rect2d box(10, 10, 20, 20);
@@ -25,9 +21,19 @@ TEST_F(EKFTest, TestKalmanPrediction) {
     // init should not crash and should set up the matrices
     bool initialized = tracker.init(dummyFrame, box, 1);
     EXPECT_TRUE(initialized);
+    EXPECT_FALSE(tracker.getOcclusionState());
+    
+    // Simulate updating with a frame where the target is not found
+    // A blank frame might fail correlation and trigger occlusion
+    cv::Mat blankFrame = cv::Mat::zeros(100, 100, CV_8UC1);
+    auto result = tracker.update(blankFrame);
+    
+    // The tracker should return an estimated box but enter occlusion state
+    EXPECT_TRUE(result.has_value());
+    EXPECT_TRUE(tracker.getOcclusionState());
 }
 
-TEST(EKFMathTest, EigenMatrixProperties) {
+TEST(KFMathTest, EigenMatrixProperties) {
     // Mathematically prove Constant Velocity F matrix properties
     Eigen::Matrix4f F;
     F << 1, 0, 1, 0,

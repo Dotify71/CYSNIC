@@ -2,14 +2,28 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
-#include <future>
 #include <chrono>
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
 #include <spdlog/spdlog.h>
 
 void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occluded, double dx = 0, double dy = 0) {
-    cv::Scalar hudColor(0, 0, 0); // Black for everything
+    // Dynamic contrast color based on background brightness
+    cv::Rect safeBox = box;
+    safeBox.x = std::max(0, safeBox.x);
+    safeBox.y = std::max(0, safeBox.y);
+    safeBox.width = std::min(frame.cols - safeBox.x, safeBox.width);
+    safeBox.height = std::min(frame.rows - safeBox.y, safeBox.height);
+    
+    cv::Scalar hudColor(0, 0, 0); // Default Black
+    if (safeBox.width > 0 && safeBox.height > 0) {
+        cv::Scalar meanColor = cv::mean(frame(safeBox));
+        double brightness = 0.299 * meanColor[2] + 0.587 * meanColor[1] + 0.114 * meanColor[0];
+        if (brightness < 128) {
+            hudColor = cv::Scalar(255, 255, 255); // Switch to White on dark background
+        }
+    }
+    
     int lineType = cv::LINE_AA;
     
     // Draw corners
@@ -46,8 +60,7 @@ void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occlude
     }
     
     // Calculations / Telemetry placed strictly outside the box
-    char telemetry[128];
-    sprintf(telemetry, "ID: %02d | POS: [%.1f, %.1f] | VEL: [%.1f, %.1f]", id, box.x, box.y, dx, dy);
+    std::string telemetry = fmt::format("ID: {:02d} | POS: [{:.1f}, {:.1f}] | VEL: [{:.1f}, {:.1f}]", id, box.x, box.y, dx, dy);
     cv::putText(frame, telemetry, cv::Point(box.x, box.y + box.height + 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
 }
 int main(int argc, char** argv) {
@@ -155,9 +168,14 @@ int main(int argc, char** argv) {
         }
         
         // Global Telemetry
-        char globalTelemetry[128];
-        sprintf(globalTelemetry, "SYS: CYSNIC v1.0 | FPS: %.1f | TARGETS: %zu | RES: %dx%d", fps, trackers.size(), frame.cols, frame.rows);
-        cv::putText(frame, globalTelemetry, cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
+        cv::Scalar globalHudColor(0, 0, 0);
+        cv::Scalar meanGlobal = cv::mean(frame(cv::Rect(0, 0, std::min(300, frame.cols), std::min(50, frame.rows))));
+        if ((0.299 * meanGlobal[2] + 0.587 * meanGlobal[1] + 0.114 * meanGlobal[0]) < 128) {
+            globalHudColor = cv::Scalar(255, 255, 255);
+        }
+        
+        std::string globalTelemetry = fmt::format("SYS: CYSNIC v1.0 | FPS: {:.1f} | TARGETS: {} | RES: {}x{}", fps, trackers.size(), frame.cols, frame.rows);
+        cv::putText(frame, globalTelemetry, cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.4, globalHudColor, 1, cv::LINE_AA);
 
         cv::imshow("CYSNIC Tracker", frame);
 
