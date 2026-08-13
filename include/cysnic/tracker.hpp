@@ -96,10 +96,6 @@ public:
         return {currentTarget.state(2), currentTarget.state(3)}; 
     }
     cv::Rect2d getBoundingBox() const { return currentTarget.boundingBox; }
-
-    // Physics gating logic (exposed for deterministic testing)
-    bool checkPhysicsGating(const cv::Rect2d& newBox);
-
 private:
     cv::Ptr<cv::Tracker> cvTracker;
     TrackTarget currentTarget;
@@ -107,10 +103,11 @@ private:
     bool isOccluded = false;
     double psrThreshold = 0.5; // Example threshold
     
-    // Internal KF math
+    // Internal KF math and physics gating
     void setupKalmanFilter();
     void predictKF();
     void correctKF(const Eigen::Vector2f& measurement);
+    bool checkPhysicsGating(const cv::Rect2d& newBox);
     
     // Rotation Recovery
     double recoverRotation(const cv::Mat& currentFrame, const cv::Rect2d& box);

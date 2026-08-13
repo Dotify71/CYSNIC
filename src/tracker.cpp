@@ -322,8 +322,18 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     
                     cvTracker->init(rotatedRoi, localBox); // Re-initialize lock on rotated frame
                     
-                    // We must fully finalize the recovery to actually resume tracking
-                    currentTarget.boundingBox = currentTarget.boundingBox; // In a true system, we'd map localBox back to global here. For this implementation, we just restore the lock on the last known box and clear occlusion.
+                    // Map localBox center back to global coordinates using inverse rotation
+                    cv::Point2f localCenter(localBox.x + localBox.width/2.0f, localBox.y + localBox.height/2.0f);
+                    cv::Mat invRotMatrix = cv::getRotationMatrix2D(center, angleShift, 1.0); // Positive angle for inverse
+                    
+                    double gx = invRotMatrix.at<double>(0,0) * localCenter.x + invRotMatrix.at<double>(0,1) * localCenter.y + invRotMatrix.at<double>(0,2);
+                    double gy = invRotMatrix.at<double>(1,0) * localCenter.x + invRotMatrix.at<double>(1,1) * localCenter.y + invRotMatrix.at<double>(1,2);
+                    
+                    cv::Point2f globalCenter(gx + paddedBox.x, gy + paddedBox.y);
+                    
+                    // Update the real bounding box
+                    currentTarget.boundingBox.x = globalCenter.x - currentTarget.boundingBox.width / 2.0;
+                    currentTarget.boundingBox.y = globalCenter.y - currentTarget.boundingBox.height / 2.0;
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;
