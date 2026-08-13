@@ -33,6 +33,10 @@ public:
     // Reset tracker
     void reset();
 
+    // X-Ray / Occlusion state access
+    bool getOcclusionState() const { return isOccluded; }
+    cv::Mat getInitialFrame() const { return currentTarget.initial_frame; }
+
 private:
     cv::Ptr<cv::Tracker> cvTracker;
     TrackTarget currentTarget;

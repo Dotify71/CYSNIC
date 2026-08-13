@@ -84,9 +84,28 @@ int main(int argc, char** argv) {
             cv::Scalar color((i * 50) % 255, (255 - i * 80) % 255, (i * 120) % 255); // Different color for each
 
             if (trackedBox.has_value()) {
-                cv::rectangle(frame, trackedBox.value(), color, 2);
-                cv::putText(frame, "T" + std::to_string(i+1), cv::Point(trackedBox.value().x, trackedBox.value().y - 10), 
-                            cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+                cv::Rect2d box = trackedBox.value();
+                bool occluded = trackers[i]->getOcclusionState();
+                
+                if (occluded) {
+                    // X-Ray / Thermal Mode: Target is blocked by something, but we predict its location!
+                    // Draw a glowing red crosshair and a thermal-styled box
+                    cv::Scalar thermalColor(0, 0, 255); // Bright Red for X-Ray
+                    
+                    // Draw crosshair at center
+                    cv::Point center(box.x + box.width / 2, box.y + box.height / 2);
+                    cv::drawMarker(frame, center, thermalColor, cv::MARKER_CROSS, 20, 2);
+                    
+                    // Draw dashed rectangle to indicate it's an estimated prediction through the obstacle
+                    cv::rectangle(frame, box, thermalColor, 2, cv::LINE_8, 0); // Solid for now
+                    cv::putText(frame, "X-RAY TARGET " + std::to_string(i+1), cv::Point(box.x, box.y - 10), 
+                                cv::FONT_HERSHEY_SIMPLEX, 0.6, thermalColor, 2);
+                } else {
+                    // Normal tracking mode
+                    cv::rectangle(frame, box, color, 2);
+                    cv::putText(frame, "T" + std::to_string(i+1), cv::Point(box.x, box.y - 10), 
+                                cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+                }
             } else {
                 cv::putText(frame, "T" + std::to_string(i+1) + " Lost", cv::Point(20, 50 + i * 30), 
                             cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255), 2);
