@@ -4,6 +4,8 @@
 #include <vector>
 #include <future>
 #include <chrono>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occluded, double dx = 0, double dy = 0) {
     cv::Scalar hudColor(0, 0, 0); // Black for everything
@@ -119,17 +121,18 @@ int main(int argc, char** argv) {
             grayFrame = frame;
         }
 
-        // Process all trackers in parallel
-        std::vector<std::future<std::optional<cv::Rect2d>>> futures;
-        for (auto& tracker : trackers) {
-            futures.push_back(std::async(std::launch::async, [&tracker, grayFrame]() {
-                return tracker->update(grayFrame);
-            }));
-        }
+        // Process all trackers in parallel using Intel TBB
+        std::vector<std::optional<cv::Rect2d>> results(trackers.size());
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, trackers.size()),
+            [&](const tbb::blocked_range<size_t>& r) {
+                for (size_t i = r.begin(); i != r.end(); ++i) {
+                    results[i] = trackers[i]->update(grayFrame);
+                }
+            });
 
         // Gather results and draw HUD
-        for (size_t i = 0; i < futures.size(); ++i) {
-            auto trackedBox = futures[i].get();
+        for (size_t i = 0; i < results.size(); ++i) {
+            auto trackedBox = results[i];
 
             if (trackedBox.has_value()) {
                 cv::Rect2d box = trackedBox.value();

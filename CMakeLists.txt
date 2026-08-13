@@ -15,6 +15,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(eigen)
 
+set(TBB_TEST OFF CACHE BOOL "" FORCE)
+set(TBB_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  tbb
+  GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
+  GIT_TAG        v2021.11.0
+)
+FetchContent_MakeAvailable(tbb)
+
 include_directories(${OpenCV_INCLUDE_DIRS} include)
 
 add_executable(cysnic_tracker 
@@ -22,4 +31,4 @@ add_executable(cysnic_tracker
     src/tracker.cpp
 )
 
-target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen)
+target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb)
