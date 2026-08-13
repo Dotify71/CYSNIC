@@ -16,6 +16,7 @@ struct TrackTarget {
     
     // Original template for rotation recovery
     cv::Mat initial_frame; 
+    cv::Mat logPolar_initial;
 };
 
 class TargetTracker {
@@ -42,6 +43,9 @@ private:
     // Physics gating
     bool checkPhysicsGating(const cv::Rect2d& newBox);
     void setupKalmanFilter();
+    
+    // Rotation Recovery
+    double recoverRotation(const cv::Mat& currentFrame, const cv::Rect2d& box);
 };
 
 } // namespace cysnic

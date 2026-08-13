@@ -40,6 +40,18 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     currentTarget.boundingBox = boundingBox;
     currentTarget.initial_frame = frame(boundingBox).clone();
     
+    // Compute log-polar transform of the initial frame for rotation recovery
+    cv::Mat grayInitial;
+    if (currentTarget.initial_frame.channels() == 3) {
+        cv::cvtColor(currentTarget.initial_frame, grayInitial, cv::COLOR_BGR2GRAY);
+    } else {
+        grayInitial = currentTarget.initial_frame.clone();
+    }
+    
+    cv::Point2f center(grayInitial.cols / 2.0f, grayInitial.rows / 2.0f);
+    double M = grayInitial.cols / std::log(grayInitial.cols / 2.0);
+    cv::logPolar(grayInitial, currentTarget.logPolar_initial, center, M, cv::INTER_LINEAR | cv::WARP_FILL_OUTLIERS);
+    
     setupKalmanFilter();
     
     // Initialize Kalman state with initial bounding box center
@@ -77,6 +89,44 @@ bool TargetTracker::checkPhysicsGating(const cv::Rect2d& newBox) {
     return true;
 }
 
+double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rect2d& box) {
+    if (box.width <= 0 || box.height <= 0 || 
+        box.x < 0 || box.y < 0 || 
+        box.x + box.width > currentFrame.cols || 
+        box.y + box.height > currentFrame.rows) {
+        return 0.0;
+    }
+
+    cv::Mat currentCrop = currentFrame(box).clone();
+    cv::Mat grayCurrent;
+    if (currentCrop.channels() == 3) {
+        cv::cvtColor(currentCrop, grayCurrent, cv::COLOR_BGR2GRAY);
+    } else {
+        grayCurrent = currentCrop.clone();
+    }
+
+    // Resize to match initial frame size if needed
+    if (grayCurrent.size() != currentTarget.logPolar_initial.size()) {
+        cv::resize(grayCurrent, grayCurrent, currentTarget.logPolar_initial.size());
+    }
+
+    cv::Point2f center(grayCurrent.cols / 2.0f, grayCurrent.rows / 2.0f);
+    double M = grayCurrent.cols / std::log(grayCurrent.cols / 2.0);
+    cv::Mat logPolar_current;
+    cv::logPolar(grayCurrent, logPolar_current, center, M, cv::INTER_LINEAR | cv::WARP_FILL_OUTLIERS);
+
+    // Ensure they are CV_64F for phaseCorrelate
+    cv::Mat initial64f, current64f;
+    currentTarget.logPolar_initial.convertTo(initial64f, CV_64F);
+    logPolar_current.convertTo(current64f, CV_64F);
+
+    cv::Point2d shift = cv::phaseCorrelate(initial64f, current64f);
+    
+    // The Y shift in log-polar corresponds to rotation in degrees (scaled by M)
+    double angle = shift.y * 360.0 / logPolar_current.rows;
+    return angle;
+}
+
 std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targetId*/) {
     // 1. Predict state using Kalman Filter
     cv::Mat prediction = currentTarget.kalman.predict();
@@ -102,6 +152,11 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
     if (isOccluded || !checkPhysicsGating(newBox)) {
         // Target is either recovering from occlusion or failing physics check.
         // We could implement rotation recovery (Log-Polar + FFT) here before trusting the box.
+        
+        // Attempt rotation recovery
+        double angleShift = recoverRotation(frame, currentTarget.boundingBox);
+        // std::cout << "Rotation offset computed: " << angleShift << " degrees." << std::endl;
+        // In a full implementation, if PSR improves after rotating the image patch back, we accept it.
         // For baseline, we just continue relying on Kalman predictions or reset track.
         isOccluded = true;
         return currentTarget.boundingBox; 
