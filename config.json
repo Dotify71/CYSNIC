@@ -1,0 +1,7 @@
+{
+    "psrThreshold": 10.0,
+    "maxOcclusionTime": 2.0,
+    "driftBaseline": 0.2,
+    "varianceCap": 1000.0,
+    "maxRotationShift": 5.0
+}

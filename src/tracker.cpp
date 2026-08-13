@@ -16,12 +16,12 @@ public:
     bool update(const cv::Mat& frame, cv::Rect2d& box) override { return tracker->update(frame, box); }
 };
 
-TargetTracker::TargetTracker() {
+TargetTracker::TargetTracker(TrackerConfig cfg) : config(cfg) {
     cvTracker = std::make_shared<MILBackend>();
     spdlog::info("TargetTracker instance initialized.");
 }
 
-TargetTracker::TargetTracker(std::shared_ptr<ITrackerBackend> customTracker) {
+TargetTracker::TargetTracker(std::shared_ptr<ITrackerBackend> customTracker, TrackerConfig cfg) : config(cfg) {
     if (!customTracker) {
         throw std::invalid_argument("TargetTracker requires a valid non-null custom tracker instance.");
     }
@@ -60,9 +60,11 @@ void TargetTracker::predictKF(double dt) {
     currentTarget.P = F * currentTarget.P * F.transpose() + currentTarget.Q;
     
     // Cap covariance growth to prevent unbounded gating acceptance during long occlusions
-    const float maxVariance = 1000.0f;
+    const float maxVariance = config.varianceCap;
     if (currentTarget.P(0,0) > maxVariance) currentTarget.P(0,0) = maxVariance;
     if (currentTarget.P(1,1) > maxVariance) currentTarget.P(1,1) = maxVariance;
+    if (currentTarget.P(2,2) > maxVariance) currentTarget.P(2,2) = maxVariance;
+    if (currentTarget.P(3,3) > maxVariance) currentTarget.P(3,3) = maxVariance;
 }
 
 void TargetTracker::correctKF(const Eigen::Vector4f& measurement) {
@@ -170,8 +172,8 @@ bool TargetTracker::checkPhysicsGating(const cv::Rect2d& newBox) {
     double stddevY = std::sqrt(currentTarget.P(1,1));
     
     // Allowable drift is 3 standard deviations (99.7% confidence interval) + a baseline tolerance
-    double maxDriftX = 3.0 * stddevX + currentTarget.boundingBox.width * 0.2;
-    double maxDriftY = 3.0 * stddevY + currentTarget.boundingBox.height * 0.2;
+    double maxDriftX = 3.0 * stddevX + currentTarget.boundingBox.width * config.driftBaseline;
+    double maxDriftY = 3.0 * stddevY + currentTarget.boundingBox.height * config.driftBaseline;
     
     cv::Point2d currentCenter(currentTarget.boundingBox.x + currentTarget.boundingBox.width/2, 
                               currentTarget.boundingBox.y + currentTarget.boundingBox.height/2);
@@ -326,7 +328,7 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
         isOccluded = true;
         occlusionDuration += dt;
         
-        if (occlusionDuration > maxOcclusionTime) {
+        if (occlusionDuration > config.maxOcclusionTime) {
             spdlog::error("Target ID {} track lost (maximum occlusion time exceeded).", currentTarget.id);
             return std::nullopt; // Explicitly drop the track
         }
@@ -355,11 +357,11 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
         } else {
             // Attempt rotation recovery with FFTW if physics gating still fails
             double angleShift = recoverRotation(frame, currentTarget.boundingBox);
-            if (currentTarget.psr < psrThreshold) {
-                spdlog::debug("Rotation recovery rejected: low PSR ({:.2f} < {:.2f})", currentTarget.psr, psrThreshold);
+            if (currentTarget.psr < config.psrThreshold) {
+                spdlog::debug("Rotation recovery rejected: low PSR ({:.2f} < {:.2f})", currentTarget.psr, config.psrThreshold);
                 return currentTarget.boundingBox;
             }
-            if (std::abs(angleShift) > 5.0) {
+            if (std::abs(angleShift) > config.maxRotationShift) {
                 spdlog::debug("Rotation offset detected: {:.1f} degrees. Applying warp affine.", angleShift);
                 
                 // We define an ROI padded around the predicted location to apply rotation recovery

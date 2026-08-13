@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 #include <memory>
 #include <optional>
+#include "cysnic/config.hpp"
 
 namespace cysnic {
 
@@ -83,8 +84,8 @@ public:
 
 class TargetTracker {
 public:
-    TargetTracker();
-    TargetTracker(std::shared_ptr<ITrackerBackend> customTracker);
+    TargetTracker(TrackerConfig config = TrackerConfig());
+    TargetTracker(std::shared_ptr<ITrackerBackend> customTracker, TrackerConfig config = TrackerConfig());
     ~TargetTracker();
 
     // Rule of Five to safely manage FFTW raw pointers
@@ -112,11 +113,10 @@ public:
 private:
     std::shared_ptr<ITrackerBackend> cvTracker;
     TrackTarget currentTarget;
+    TrackerConfig config;
     
     bool isOccluded = false;
     double occlusionDuration = 0.0;
-    const double maxOcclusionTime = 2.0; // 2 seconds
-    double psrThreshold = 10.0; // PSR Threshold for accepting rotation recovery
     
     // Internal KF math and physics gating
     void setupKalmanFilter();

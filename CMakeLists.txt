@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(CYSNIC VERSION 1.0.0 LANGUAGES CXX)
 
+option(USE_SANITIZERS "Enable Address and Undefined Behavior Sanitizers" OFF)
+option(USE_CLANG_TIDY "Enable Clang-Tidy Static Analysis" OFF)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
@@ -42,6 +45,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.2 # Explicit version tag for stability
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # GoogleTest for KF math validation
 FetchContent_Declare(
   googletest
@@ -53,8 +63,25 @@ FetchContent_MakeAvailable(googletest)
 
 include_directories(${OpenCV_INCLUDE_DIRS} include ${fftw_SOURCE_DIR}/api)
 
-# Standard Compiler Hygiene Flags
-set(CYSNIC_FLAGS -Wall -Wextra -Wpedantic -Werror -O3)
+# Default compiler flags for rigorous build
+set(CYSNIC_FLAGS "-Wall" "-Wextra" "-Wpedantic" "-Werror")
+
+if(USE_SANITIZERS)
+    list(APPEND CYSNIC_FLAGS "-fsanitize=address,undefined" "-fno-omit-frame-pointer" "-g")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+endif()
+
+if(USE_CLANG_TIDY)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy)
+    if(CLANG_TIDY_EXE)
+        set(CMAKE_CXX_CLANG_TIDY ${CLANG_TIDY_EXE} "-checks=*,-fuchsia-*,-google-*,-zircon-*")
+    else()
+        message(WARNING "clang-tidy requested but not found!")
+    endif()
+endif()
+
+# Append O3 after potential sanitizer flags
+list(APPEND CYSNIC_FLAGS "-O3")
 
 add_executable(cysnic_tracker 
     src/main.cpp 
@@ -62,7 +89,7 @@ add_executable(cysnic_tracker
 )
 
 target_compile_options(cysnic_tracker PRIVATE ${CYSNIC_FLAGS})
-target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3 spdlog::spdlog)
+target_link_libraries(cysnic_tracker PUBLIC ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog TBB::tbb nlohmann_json::nlohmann_json)
 
 # Tests
 enable_testing()
@@ -72,6 +99,6 @@ add_executable(cysnic_tests
     src/tracker.cpp
 )
 target_compile_options(cysnic_tests PRIVATE ${CYSNIC_FLAGS})
-target_link_libraries(cysnic_tests PRIVATE gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog TBB::tbb)
+target_link_libraries(cysnic_tests PRIVATE gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog TBB::tbb nlohmann_json::nlohmann_json)
 include(GoogleTest)
 gtest_discover_tests(cysnic_tests)
