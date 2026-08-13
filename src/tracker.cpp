@@ -363,10 +363,6 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;
-                    kfState.at<float>(0) = currentTarget.boundingBox.x;
-                    kfState.at<float>(1) = currentTarget.boundingBox.y;
-                    kfState.at<float>(2) = currentTarget.boundingBox.width;
-                    kfState.at<float>(3) = currentTarget.boundingBox.height;
                     Eigen::Vector2f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f, 
                                                 currentTarget.boundingBox.y + currentTarget.boundingBox.height / 2.0f);
                     correctKF(measurement);

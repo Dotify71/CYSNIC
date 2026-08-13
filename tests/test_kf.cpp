@@ -116,6 +116,30 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     EXPECT_NEAR(actualRadiusSq, expectedRadiusSq, 1e-3);
 }
 
+TEST_F(KFTest, TestRotationRecoveryOutOfBounds) {
+    cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
+    cv::Rect2d initialBox(40, 40, 20, 20);
+    cv::rectangle(dummyFrame, cv::Rect(40, 40, 20, 10), cv::Scalar(255, 255, 255), cv::FILLED);
+    EXPECT_TRUE(tracker->init(dummyFrame, initialBox, 1));
+    
+    mockTracker->shouldFail = true;
+    tracker->update(dummyFrame);
+    EXPECT_TRUE(tracker->getOcclusionState());
+    
+    cv::Mat rotatedFrame = cv::Mat::zeros(100, 100, CV_8UC3);
+    cv::rectangle(rotatedFrame, cv::Rect(40, 40, 10, 20), cv::Scalar(255, 255, 255), cv::FILLED);
+    
+    // Force a local box that will map far outside the 100x100 frame
+    mockTracker->shouldFail = false;
+    mockTracker->nextBox = cv::Rect2d(1000, 1000, 20, 20); 
+    
+    auto result = tracker->update(rotatedFrame);
+    
+    // The recovery should be rejected because the mapped box intersects to area <= 0
+    EXPECT_FALSE(result.has_value());
+    EXPECT_TRUE(tracker->getOcclusionState()); // State must remain occluded
+}
+
 TEST_F(KFTest, TestInitBoundsClamping) {
     cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
     
