@@ -1,6 +1,9 @@
 #include "cysnic/tracker.hpp"
 #include <iostream>
 #include <cmath>
+#include <spdlog/spdlog.h>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 #include <fftw3.h>
 
 namespace cysnic {
@@ -271,7 +274,7 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
 
     double shift_y = max_r > rows / 2 ? max_r - rows : max_r;
     
-    currentTarget.confidence = max_val; // Store PSR equivalent peak
+    currentTarget.correlationPeak = max_val; // Store raw phase correlation peak
     
     // The Y shift in log-polar corresponds to rotation in degrees
     double angle = shift_y * 360.0 / rows;
@@ -318,8 +321,8 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt,
         } else {
             // Attempt rotation recovery with FFTW if physics gating still fails
             double angleShift = recoverRotation(frame, currentTarget.boundingBox);
-            if (currentTarget.confidence < psrThreshold) {
-                spdlog::debug("Rotation recovery rejected: low confidence ({:.2f} < {:.2f})", currentTarget.confidence, psrThreshold);
+            if (currentTarget.correlationPeak < peakThreshold) {
+                spdlog::debug("Rotation recovery rejected: low peak ({:.2f} < {:.2f})", currentTarget.correlationPeak, peakThreshold);
                 return currentTarget.boundingBox;
             }
             if (std::abs(angleShift) > 5.0) {

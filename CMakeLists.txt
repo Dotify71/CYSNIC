@@ -72,6 +72,6 @@ add_executable(cysnic_tests
     src/tracker.cpp
 )
 target_compile_options(cysnic_tests PRIVATE ${CYSNIC_FLAGS})
-target_link_libraries(cysnic_tests gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog)
+target_link_libraries(cysnic_tests PRIVATE gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog TBB::tbb)
 include(GoogleTest)
 gtest_discover_tests(cysnic_tests)

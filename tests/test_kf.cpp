@@ -163,25 +163,29 @@ TEST_F(KFTest, TestInitBoundsClamping) {
 }
 
 TEST(KFMathTest, EigenMatrixProperties) {
-    // Mathematically prove Constant Velocity F matrix properties
-    Eigen::Matrix4f F;
-    F << 1, 0, 1, 0,
-         0, 1, 0, 1,
-         0, 0, 1, 0,
-         0, 0, 0, 1;
+    // Mathematically prove Constant Velocity F matrix properties for 6D state
+    double dt = 0.033;
+    Eigen::Matrix<float, 6, 6> F = Eigen::Matrix<float, 6, 6>::Identity();
+    F(0, 4) = dt; // x += dx * dt
+    F(1, 5) = dt; // y += dy * dt
          
-    Eigen::Vector4f state(10, 10, 5, 2); // x, y, dx, dy
+    Eigen::Matrix<float, 6, 1> state;
+    state << 10.0f, 10.0f, 20.0f, 20.0f, 5.0f, 2.0f; // x, y, w, h, dx, dy
     
     // Predict next state
-    Eigen::Vector4f next_state = F * state;
+    Eigen::Matrix<float, 6, 1> next_state = F * state;
     
-    // Next X should be X + dX = 10 + 5 = 15
-    EXPECT_FLOAT_EQ(next_state(0), 15.0f);
+    // Next X should be X + dX * dt = 10 + 5 * 0.033 = 10.165
+    EXPECT_FLOAT_EQ(next_state(0), 10.0f + 5.0f * (float)dt);
     
-    // Next Y should be Y + dY = 10 + 2 = 12
-    EXPECT_FLOAT_EQ(next_state(1), 12.0f);
+    // Next Y should be Y + dY * dt = 10 + 2 * 0.033 = 10.066
+    EXPECT_FLOAT_EQ(next_state(1), 10.0f + 2.0f * (float)dt);
+    
+    // Scale (w, h) should remain constant in prediction
+    EXPECT_FLOAT_EQ(next_state(2), 20.0f);
+    EXPECT_FLOAT_EQ(next_state(3), 20.0f);
     
     // Velocities should remain constant in prediction
-    EXPECT_FLOAT_EQ(next_state(2), 5.0f);
-    EXPECT_FLOAT_EQ(next_state(3), 2.0f);
+    EXPECT_FLOAT_EQ(next_state(4), 5.0f);
+    EXPECT_FLOAT_EQ(next_state(5), 2.0f);
 }
