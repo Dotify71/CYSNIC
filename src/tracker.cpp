@@ -136,12 +136,18 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     int cols = currentTarget.logPolar_initial.cols;
     int N = rows * cols;
     
-    currentTarget.fftw.in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.fftw.in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.fftw.out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.fftw.out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.fftw.cross = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.fftw.spatial = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    currentTarget.fftw.in1 = reinterpret_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * N));
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    currentTarget.fftw.in2 = reinterpret_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * N));
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    currentTarget.fftw.out1 = reinterpret_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * N));
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    currentTarget.fftw.out2 = reinterpret_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * N));
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    currentTarget.fftw.cross = reinterpret_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * N));
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    currentTarget.fftw.spatial = reinterpret_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * N));
 
     if (!currentTarget.fftw.in1 || !currentTarget.fftw.in2 || !currentTarget.fftw.out1 || 
         !currentTarget.fftw.out2 || !currentTarget.fftw.cross || !currentTarget.fftw.spatial) {

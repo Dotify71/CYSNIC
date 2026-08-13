@@ -22,11 +22,17 @@ struct FftwState {
         if (p1) fftw_destroy_plan(p1);
         if (p2) fftw_destroy_plan(p2);
         if (p3) fftw_destroy_plan(p3);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
         if (in1) fftw_free(in1);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
         if (in2) fftw_free(in2);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
         if (out1) fftw_free(out1);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
         if (out2) fftw_free(out2);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
         if (cross) fftw_free(cross);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
         if (spatial) fftw_free(spatial);
     }
     

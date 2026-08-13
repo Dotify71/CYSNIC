@@ -80,15 +80,19 @@ if(USE_CLANG_TIDY)
     endif()
 endif()
 
-# Copy config.json to build directory
-file(COPY config.json DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-
 # Append O3 after potential sanitizer flags
 list(APPEND CYSNIC_FLAGS "-O3")
 
 add_executable(cysnic_tracker 
     src/main.cpp 
     src/tracker.cpp
+)
+
+# Copy config.json to build directory automatically on build
+add_custom_command(TARGET cysnic_tracker POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/config.json"
+        "${CMAKE_CURRENT_BINARY_DIR}/config.json"
 )
 
 target_compile_options(cysnic_tracker PRIVATE ${CYSNIC_FLAGS})
@@ -103,5 +107,13 @@ add_executable(cysnic_tests
 )
 target_compile_options(cysnic_tests PRIVATE ${CYSNIC_FLAGS})
 target_link_libraries(cysnic_tests PRIVATE gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog TBB::tbb nlohmann_json::nlohmann_json)
+
+# Copy config.json to build directory automatically on build for tests as well
+add_custom_command(TARGET cysnic_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/config.json"
+        "${CMAKE_CURRENT_BINARY_DIR}/config.json"
+)
+
 include(GoogleTest)
 gtest_discover_tests(cysnic_tests)
