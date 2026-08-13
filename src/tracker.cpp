@@ -8,9 +8,23 @@ namespace cysnic {
 TargetTracker::TargetTracker() {
     // Attempting to create KCF Tracker as baseline (fast correlation filter)
     cvTracker = cv::TrackerKCF::create();
+    spdlog::info("TargetTracker instance initialized.");
 }
 
-TargetTracker::~TargetTracker() {}
+TargetTracker::~TargetTracker() {
+    if (currentTarget.fftw_initialized) {
+        fftw_destroy_plan(currentTarget.p1);
+        fftw_destroy_plan(currentTarget.p2);
+        fftw_destroy_plan(currentTarget.p3);
+        fftw_free(currentTarget.in1);
+        fftw_free(currentTarget.in2);
+        fftw_free(currentTarget.out1);
+        fftw_free(currentTarget.out2);
+        fftw_free(currentTarget.cross);
+        fftw_free(currentTarget.spatial);
+        spdlog::debug("TargetTracker FFTW memory freed.");
+    }
+}
 
 void TargetTracker::setupKalmanFilter() {
     // Initialize Eigen matrices
@@ -89,7 +103,25 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     currentTarget.state(2) = 0.0f;
     currentTarget.state(3) = 0.0f;
     
+    // Allocate FFTW memory for Zero-Allocation Loop
+    int rows = currentTarget.logPolar_initial.rows;
+    int cols = currentTarget.logPolar_initial.cols;
+    int N = rows * cols;
+    
+    currentTarget.in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.cross = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.spatial = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+
+    currentTarget.p1 = fftw_plan_dft_2d(rows, cols, currentTarget.in1, currentTarget.out1, FFTW_FORWARD, FFTW_MEASURE);
+    currentTarget.p2 = fftw_plan_dft_2d(rows, cols, currentTarget.in2, currentTarget.out2, FFTW_FORWARD, FFTW_MEASURE);
+    currentTarget.p3 = fftw_plan_dft_2d(rows, cols, currentTarget.cross, currentTarget.spatial, FFTW_BACKWARD, FFTW_MEASURE);
+    currentTarget.fftw_initialized = true;
+    
     cvTracker->init(frame, boundingBox);
+    spdlog::info("TargetTracker ID {} Locked on [{:.1f}, {:.1f}]", targetId, boundingBox.x, boundingBox.y);
     return true;
 }
 
@@ -149,21 +181,15 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
     currentTarget.logPolar_initial.convertTo(initial64f, CV_64F);
     logPolar_current.convertTo(current64f, CV_64F);
 
-    // FFTW3 Phase Correlation
+    // FFTW3 Phase Correlation (Zero-Allocation)
     int rows = initial64f.rows;
     int cols = initial64f.cols;
     int N = rows * cols;
 
-    fftw_complex *in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex *in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex *out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex *out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex *cross = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    fftw_complex *spatial = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-
-    fftw_plan p1 = fftw_plan_dft_2d(rows, cols, in1, out1, FFTW_FORWARD, FFTW_ESTIMATE);
-    fftw_plan p2 = fftw_plan_dft_2d(rows, cols, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE);
-    fftw_plan p3 = fftw_plan_dft_2d(rows, cols, cross, spatial, FFTW_BACKWARD, FFTW_ESTIMATE);
+    if (!currentTarget.fftw_initialized) {
+        spdlog::error("FFTW Memory not initialized!");
+        return 0.0;
+    }
 
     // Load data and apply Hann window
     for (int r = 0; r < rows; r++) {
@@ -176,37 +202,37 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
             double wx = 0.5 * (1 - cos(2 * M_PI * c / (cols - 1.0)));
             double w = wy * wx;
             
-            in1[r * cols + c][0] = val1 * w;
-            in1[r * cols + c][1] = 0.0;
-            in2[r * cols + c][0] = val2 * w;
-            in2[r * cols + c][1] = 0.0;
+            currentTarget.in1[r * cols + c][0] = val1 * w;
+            currentTarget.in1[r * cols + c][1] = 0.0;
+            currentTarget.in2[r * cols + c][0] = val2 * w;
+            currentTarget.in2[r * cols + c][1] = 0.0;
         }
     }
 
-    fftw_execute(p1);
-    fftw_execute(p2);
+    fftw_execute(currentTarget.p1);
+    fftw_execute(currentTarget.p2);
 
     // Cross-power spectrum
     for (int i = 0; i < N; i++) {
-        double r1 = out1[i][0], i1 = out1[i][1];
-        double r2 = out2[i][0], i2 = out2[i][1];
+        double r1 = currentTarget.out1[i][0], i1 = currentTarget.out1[i][1];
+        double r2 = currentTarget.out2[i][0], i2 = currentTarget.out2[i][1];
         
         double cr = r1 * r2 + i1 * i2;
         double ci = i1 * r2 - r1 * i2;
         double mag = sqrt(cr * cr + ci * ci) + 1e-5;
         
-        cross[i][0] = cr / mag;
-        cross[i][1] = ci / mag;
+        currentTarget.cross[i][0] = cr / mag;
+        currentTarget.cross[i][1] = ci / mag;
     }
 
-    fftw_execute(p3);
+    fftw_execute(currentTarget.p3);
 
     // Find peak
     double max_val = -1e9;
     int max_r = 0, max_c = 0;
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
-            double val = spatial[r * cols + c][0];
+            double val = currentTarget.spatial[r * cols + c][0];
             if (val > max_val) {
                 max_val = val;
                 max_r = r;
@@ -217,12 +243,6 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
 
     double shift_y = max_r > rows / 2 ? max_r - rows : max_r;
     double shift_x = max_c > cols / 2 ? max_c - cols : max_c;
-
-    fftw_destroy_plan(p1);
-    fftw_destroy_plan(p2);
-    fftw_destroy_plan(p3);
-    fftw_free(in1); fftw_free(in2); fftw_free(out1); 
-    fftw_free(out2); fftw_free(cross); fftw_free(spatial);
     
     // The Y shift in log-polar corresponds to rotation in degrees
     double angle = shift_y * 360.0 / rows;
@@ -240,6 +260,9 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
     
     // 3. Occlusion & Confidence Management
     if (!found) {
+        if (!isOccluded) {
+            spdlog::warn("Target ID {} occluded! Switching to X-Ray EKF Prediction.", currentTarget.id);
+        }
         isOccluded = true;
         // If occluded, use Kalman prediction as the box location
         newBox.x = predictedCenter.x - currentTarget.boundingBox.width / 2.0;

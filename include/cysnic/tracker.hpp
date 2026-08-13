@@ -4,6 +4,8 @@
 #include <opencv2/tracking.hpp>
 #include <opencv2/video/tracking.hpp>
 #include <Eigen/Dense>
+#include <fftw3.h>
+#include <spdlog/spdlog.h>
 #include <memory>
 #include <optional>
 
@@ -21,6 +23,11 @@ struct TrackTarget {
     
     double confidence; // Peak-to-Sidelobe Ratio (PSR)
     
+    // FFTW pre-allocated plans and arrays for Zero-Allocation loop
+    fftw_complex *in1, *in2, *out1, *out2, *cross, *spatial;
+    fftw_plan p1, p2, p3;
+    bool fftw_initialized = false;
+    
     // Original template for rotation recovery
     cv::Mat initial_frame; 
     cv::Mat logPolar_initial;
@@ -31,7 +38,7 @@ public:
     TargetTracker();
     ~TargetTracker();
 
-    // Initialize the tracker with a specific bounding box for a target
+    // Initialize the tracker with the first frame and a bounding box
     bool init(const cv::Mat& frame, const cv::Rect2d& boundingBox, int targetId = 1);
     
     // Update the tracker state with a new frame

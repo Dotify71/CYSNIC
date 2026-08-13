@@ -6,6 +6,7 @@
 #include <chrono>
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
+#include <spdlog/spdlog.h>
 
 void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occluded, double dx = 0, double dy = 0) {
     cv::Scalar hudColor(0, 0, 0); // Black for everything
@@ -50,28 +51,33 @@ void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occlude
     cv::putText(frame, telemetry, cv::Point(box.x, box.y + box.height + 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
 }
 int main(int argc, char** argv) {
+    spdlog::set_level(spdlog::level::debug); // Set global log level
+    spdlog::info("CYSNIC Tactical Tracker starting...");
+
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <video_path_or_camera_id>" << std::endl;
-        return 1;
+        spdlog::error("Usage: {} <video_path_or_camera_id>", argv[0]);
+        return -1;
     }
 
+    std::string source = argv[1];
     cv::VideoCapture cap;
-    if (std::string(argv[1]).length() == 1 && isdigit(argv[1][0])) {
-        cap.open(std::stoi(argv[1]));
+
+    if (source.length() == 1 && isdigit(source[0])) {
+        cap.open(std::stoi(source));
     } else {
-        cap.open(argv[1]);
+        cap.open(source);
     }
 
     if (!cap.isOpened()) {
-        std::cerr << "Error: Could not open video source " << argv[1] << std::endl;
-        return 1;
+        spdlog::error("Failed to open video source: {}", source);
+        return -1;
     }
 
     cv::Mat frame;
-    cap >> frame;
+    cap.read(frame);
     if (frame.empty()) {
-        std::cerr << "Error: Empty first frame" << std::endl;
-        return 1;
+        spdlog::error("Failed to read first frame.");
+        return -1;
     }
 
     std::vector<std::unique_ptr<cysnic::TargetTracker>> trackers;
@@ -99,11 +105,12 @@ int main(int argc, char** argv) {
     }
 
     if (trackers.empty()) {
-        std::cerr << "Error: No ROIs selected. Exiting." << std::endl;
+        spdlog::error("No ROIs selected. Exiting.");
         return 1;
     }
     
     cv::destroyWindow("CYSNIC Tracker - Select ROIs (Space to finish)");
+    spdlog::info("Tracking {} targets...", trackers.size());
 
     auto prevTime = std::chrono::high_resolution_clock::now();
 

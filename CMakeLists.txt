@@ -34,11 +34,39 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(fftw)
 
+# spdlog for tactical logging
+FetchContent_Declare(
+  spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG        v1.12.0
+)
+FetchContent_MakeAvailable(spdlog)
+
+# GoogleTest for EKF math validation
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG        v1.14.0
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
 include_directories(${OpenCV_INCLUDE_DIRS} include ${fftw_SOURCE_DIR}/api)
+
+# Military-Grade Compiler Flags
+set(MIL_FLAGS "-Wall -Wextra -Wpedantic -Werror -O3 -march=native")
 
 add_executable(cysnic_tracker 
     src/main.cpp
     src/tracker.cpp
 )
+target_compile_options(cysnic_tracker PRIVATE ${MIL_FLAGS})
+target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3 spdlog::spdlog)
 
-target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3)
+# Tests
+enable_testing()
+add_executable(cysnic_tests tests/test_ekf.cpp src/tracker.cpp)
+target_compile_options(cysnic_tests PRIVATE ${MIL_FLAGS})
+target_link_libraries(cysnic_tests gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog)
+include(GoogleTest)
+gtest_discover_tests(cysnic_tests)
