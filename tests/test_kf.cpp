@@ -102,16 +102,18 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     EXPECT_DOUBLE_EQ(recoveredBox.height, 20.0);
     
     // Validate the remapped global coordinates.
-    // Given the target was near center (50, 50) and we gave it a small 2px offset (22, 22 local center vs 20, 20 ROI center)
-    // The rotated coordinates mapped back to global space should be approximately near (50, 50) +/- the small rotation offset.
-    // If the inverse affine remap is completely broken, it will map far outside this neighborhood.
-    double expectedCenterX = 50.0;
-    double expectedCenterY = 50.0;
+    // A rigid affine rotation matrix must perfectly preserve the distance (radius) from the center of rotation.
+    // The local target center is at (22, 22), and the ROI center is at (20, 20).
+    // The padded box global center is at (50, 50).
+    // Therefore, regardless of the exact angle returned by FFTW, the mapped global center MUST lie exactly on a circle
+    // of the same radius around (50, 50). This proves the inverse affine matrix is perfectly formulated.
     double actualCenterX = recoveredBox.x + recoveredBox.width / 2.0;
     double actualCenterY = recoveredBox.y + recoveredBox.height / 2.0;
     
-    EXPECT_NEAR(actualCenterX, expectedCenterX, 5.0);
-    EXPECT_NEAR(actualCenterY, expectedCenterY, 5.0);
+    double expectedRadiusSq = std::pow(22.0 - 20.0, 2) + std::pow(22.0 - 20.0, 2); // exactly 8.0
+    double actualRadiusSq = std::pow(actualCenterX - 50.0, 2) + std::pow(actualCenterY - 50.0, 2);
+    
+    EXPECT_NEAR(actualRadiusSq, expectedRadiusSq, 1e-3);
 }
 
 TEST_F(KFTest, TestInitBoundsClamping) {

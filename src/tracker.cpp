@@ -268,7 +268,6 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
     }
 
     double shift_y = max_r > rows / 2 ? max_r - rows : max_r;
-    double shift_x = max_c > cols / 2 ? max_c - cols : max_c;
     
     // The Y shift in log-polar corresponds to rotation in degrees
     double angle = shift_y * 360.0 / rows;
@@ -354,10 +353,20 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     newGlobalBox.height = currentTarget.boundingBox.height;
                     
                     // Strictly intersect with the frame boundaries to ensure safety without ad-hoc truncation
-                    currentTarget.boundingBox = newGlobalBox & cv::Rect2d(0, 0, frame.cols, frame.rows);
+                    cv::Rect2d finalBox = newGlobalBox & cv::Rect2d(0, 0, frame.cols, frame.rows);
+                    
+                    if (finalBox.area() <= 0) {
+                        return std::nullopt; // The recovered box was entirely outside the frame bounds
+                    }
+                    
+                    currentTarget.boundingBox = finalBox;
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;
+                    kfState.at<float>(0) = currentTarget.boundingBox.x;
+                    kfState.at<float>(1) = currentTarget.boundingBox.y;
+                    kfState.at<float>(2) = currentTarget.boundingBox.width;
+                    kfState.at<float>(3) = currentTarget.boundingBox.height;
                     Eigen::Vector2f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f, 
                                                 currentTarget.boundingBox.y + currentTarget.boundingBox.height / 2.0f);
                     correctKF(measurement);
