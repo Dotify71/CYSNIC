@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/tracking.hpp>
 #include <opencv2/video/tracking.hpp>
+#include <Eigen/Dense>
 #include <memory>
 #include <optional>
 
@@ -11,7 +12,13 @@ namespace cysnic {
 struct TrackTarget {
     int id;
     cv::Rect2d bounding_box;
-    cv::KalmanFilter kalman;
+    
+    // Eigen-based EKF State (x, y, dx, dy)
+    Eigen::Vector4f state;
+    Eigen::Matrix4f P; // Estimate covariance
+    Eigen::Matrix4f Q; // Process noise covariance
+    Eigen::Matrix2f R; // Measurement noise covariance
+    
     double confidence; // Peak-to-Sidelobe Ratio (PSR)
     
     // Original template for rotation recovery
@@ -36,6 +43,9 @@ public:
     // X-Ray / Occlusion state access
     bool getOcclusionState() const { return isOccluded; }
     cv::Mat getInitialFrame() const { return currentTarget.initial_frame; }
+    std::pair<double, double> getVelocity() const { 
+        return {currentTarget.state(2), currentTarget.state(3)}; 
+    }
 
 private:
     cv::Ptr<cv::Tracker> cvTracker;
@@ -47,6 +57,10 @@ private:
     // Physics gating
     bool checkPhysicsGating(const cv::Rect2d& newBox);
     void setupKalmanFilter();
+    
+    // EKF Core Math
+    void predictEKF();
+    void correctEKF(const Eigen::Vector2f& measurement);
     
     // Rotation Recovery
     double recoverRotation(const cv::Mat& currentFrame, const cv::Rect2d& box);

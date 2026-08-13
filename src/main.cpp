@@ -134,9 +134,10 @@ int main(int argc, char** argv) {
             if (trackedBox.has_value()) {
                 cv::Rect2d box = trackedBox.value();
                 bool occluded = trackers[i]->getOcclusionState();
+                auto vel = trackers[i]->getVelocity();
                 
-                // Draw HUD (passing 0,0 for velocity right now, but you can expose Kalman states in future updates)
-                drawTacticalHUD(frame, box, i+1, occluded, 0.0, 0.0);
+                // Draw HUD with actual EKF velocity
+                drawTacticalHUD(frame, box, i+1, occluded, vel.first, vel.second);
             } else {
                 cv::putText(frame, "T" + std::to_string(i+1) + " LOST", cv::Point(20, 50 + i * 30), 
                             cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1, cv::LINE_AA);

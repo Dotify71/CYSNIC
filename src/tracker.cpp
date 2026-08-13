@@ -12,27 +12,55 @@ TargetTracker::TargetTracker() {
 TargetTracker::~TargetTracker() {}
 
 void TargetTracker::setupKalmanFilter() {
-    // 4 state variables (x, y, dx, dy), 2 measurements (x, y)
-    currentTarget.kalman.init(4, 2, 0);
-    
-    // Transition matrix (A)
-    // [1 0 1 0]
-    // [0 1 0 1]
-    // [0 0 1 0]
-    // [0 0 0 1]
-    currentTarget.kalman.transitionMatrix = (cv::Mat_<float>(4, 4) << 1,0,1,0,   0,1,0,1,  0,0,1,0,  0,0,0,1);
-    
-    // Measurement matrix (H)
-    cv::setIdentity(currentTarget.kalman.measurementMatrix);
+    // Initialize Eigen matrices
+    currentTarget.state.setZero();
     
     // Process noise covariance (Q)
-    cv::setIdentity(currentTarget.kalman.processNoiseCov, cv::Scalar::all(1e-4));
+    currentTarget.Q = Eigen::Matrix4f::Identity() * 1e-4f;
     
     // Measurement noise covariance (R)
-    cv::setIdentity(currentTarget.kalman.measurementNoiseCov, cv::Scalar::all(1e-1));
+    currentTarget.R = Eigen::Matrix2f::Identity() * 1e-1f;
     
     // Error covariance (P)
-    cv::setIdentity(currentTarget.kalman.errorCovPost, cv::Scalar::all(.1));
+    currentTarget.P = Eigen::Matrix4f::Identity() * 0.1f;
+}
+
+void TargetTracker::predictEKF() {
+    // Transition matrix (F) for Constant Velocity model
+    Eigen::Matrix4f F;
+    F << 1, 0, 1, 0,
+         0, 1, 0, 1,
+         0, 0, 1, 0,
+         0, 0, 0, 1;
+         
+    // Predict state: x = F * x
+    currentTarget.state = F * currentTarget.state;
+    
+    // Predict covariance: P = F * P * F^T + Q
+    currentTarget.P = F * currentTarget.P * F.transpose() + currentTarget.Q;
+}
+
+void TargetTracker::correctEKF(const Eigen::Vector2f& measurement) {
+    // Measurement matrix (H) maps state (x,y,dx,dy) to measurement (x,y)
+    Eigen::Matrix<float, 2, 4> H;
+    H << 1, 0, 0, 0,
+         0, 1, 0, 0;
+         
+    // Innovation (y) = z - H * x
+    Eigen::Vector2f y = measurement - H * currentTarget.state;
+    
+    // Innovation covariance (S) = H * P * H^T + R
+    Eigen::Matrix2f S = H * currentTarget.P * H.transpose() + currentTarget.R;
+    
+    // Kalman Gain (K) = P * H^T * S^-1
+    Eigen::Matrix<float, 4, 2> K = currentTarget.P * H.transpose() * S.inverse();
+    
+    // Update state: x = x + K * y
+    currentTarget.state = currentTarget.state + K * y;
+    
+    // Update covariance: P = (I - K * H) * P
+    Eigen::Matrix4f I = Eigen::Matrix4f::Identity();
+    currentTarget.P = (I - K * H) * currentTarget.P;
 }
 
 bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, int targetId) {
@@ -55,10 +83,10 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     setupKalmanFilter();
     
     // Initialize Kalman state with initial bounding box center
-    currentTarget.kalman.statePost.at<float>(0) = boundingBox.x + boundingBox.width / 2.0f;
-    currentTarget.kalman.statePost.at<float>(1) = boundingBox.y + boundingBox.height / 2.0f;
-    currentTarget.kalman.statePost.at<float>(2) = 0.0f;
-    currentTarget.kalman.statePost.at<float>(3) = 0.0f;
+    currentTarget.state(0) = boundingBox.x + boundingBox.width / 2.0f;
+    currentTarget.state(1) = boundingBox.y + boundingBox.height / 2.0f;
+    currentTarget.state(2) = 0.0f;
+    currentTarget.state(3) = 0.0f;
     
     cvTracker->init(frame, boundingBox);
     return true;
@@ -128,9 +156,9 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
 }
 
 std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targetId*/) {
-    // 1. Predict state using Kalman Filter
-    cv::Mat prediction = currentTarget.kalman.predict();
-    cv::Point2f predictedCenter(prediction.at<float>(0), prediction.at<float>(1));
+    // 1. Predict state using Eigen EKF
+    predictEKF();
+    cv::Point2f predictedCenter(currentTarget.state(0), currentTarget.state(1));
     
     // 2. Update with underlying correlation filter backend
     cv::Rect2d newBox;
@@ -166,11 +194,9 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
     isOccluded = false;
     currentTarget.boundingBox = newBox;
     
-    // Correct Kalman Filter with new measurement
-    cv::Mat_<float> measurement(2, 1);
-    measurement(0) = newBox.x + newBox.width / 2.0f;
-    measurement(1) = newBox.y + newBox.height / 2.0f;
-    currentTarget.kalman.correct(measurement);
+    // Correct Eigen EKF with new measurement
+    Eigen::Vector2f measurement(newBox.x + newBox.width / 2.0f, newBox.y + newBox.height / 2.0f);
+    correctEKF(measurement);
     
     return newBox;
 }

@@ -7,6 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+  eigen
+  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+  GIT_TAG        3.4.0
+)
+FetchContent_MakeAvailable(eigen)
+
 include_directories(${OpenCV_INCLUDE_DIRS} include)
 
 add_executable(cysnic_tracker 
@@ -14,4 +22,4 @@ add_executable(cysnic_tracker
     src/tracker.cpp
 )
 
-target_link_libraries(cysnic_tracker ${OpenCV_LIBS})
+target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen)
