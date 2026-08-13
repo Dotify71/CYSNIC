@@ -5,10 +5,22 @@
 
 namespace cysnic {
 
+class KCFBackend : public ITrackerBackend {
+    cv::Ptr<cv::Tracker> tracker;
+public:
+    KCFBackend() { tracker = cv::TrackerKCF::create(); }
+    void init(const cv::Mat& frame, const cv::Rect2d& box) override { tracker->init(frame, box); }
+    bool update(const cv::Mat& frame, cv::Rect2d& box) override { return tracker->update(frame, box); }
+};
+
 TargetTracker::TargetTracker() {
-    // Attempting to create KCF Tracker as baseline (fast correlation filter)
-    cvTracker = cv::TrackerKCF::create();
+    cvTracker = std::make_shared<KCFBackend>();
     spdlog::info("TargetTracker instance initialized.");
+}
+
+TargetTracker::TargetTracker(std::shared_ptr<ITrackerBackend> customTracker) {
+    cvTracker = customTracker;
+    spdlog::info("TargetTracker instance initialized with custom tracker.");
 }
 
 TargetTracker::~TargetTracker() {
@@ -331,9 +343,11 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     
                     cv::Point2f globalCenter(gx + paddedBox.x, gy + paddedBox.y);
                     
-                    // Update the real bounding box
-                    currentTarget.boundingBox.x = globalCenter.x - currentTarget.boundingBox.width / 2.0;
-                    currentTarget.boundingBox.y = globalCenter.y - currentTarget.boundingBox.height / 2.0;
+                    // Update the real bounding box and clamp it
+                    currentTarget.boundingBox.x = std::max(0.0, globalCenter.x - currentTarget.boundingBox.width / 2.0);
+                    currentTarget.boundingBox.y = std::max(0.0, globalCenter.y - currentTarget.boundingBox.height / 2.0);
+                    currentTarget.boundingBox.width = std::min((double)frame.cols - currentTarget.boundingBox.x, currentTarget.boundingBox.width);
+                    currentTarget.boundingBox.height = std::min((double)frame.rows - currentTarget.boundingBox.y, currentTarget.boundingBox.height);
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;

@@ -54,19 +54,23 @@ FetchContent_MakeAvailable(googletest)
 include_directories(${OpenCV_INCLUDE_DIRS} include ${fftw_SOURCE_DIR}/api)
 
 # Standard Compiler Hygiene Flags
-set(MIL_FLAGS -Wall -Wextra -Wpedantic -Werror -O3)
+set(CYSNIC_FLAGS -Wall -Wextra -Wpedantic -Werror -O3)
 
 add_executable(cysnic_tracker 
-    src/main.cpp
+    src/main.cpp 
     src/tracker.cpp
 )
-target_compile_options(cysnic_tracker PRIVATE ${MIL_FLAGS})
+
+target_compile_options(cysnic_tracker PRIVATE ${CYSNIC_FLAGS})
 target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3 spdlog::spdlog)
 
 # Tests
 enable_testing()
-add_executable(cysnic_tests tests/test_kf.cpp src/tracker.cpp)
-target_compile_options(cysnic_tests PRIVATE ${MIL_FLAGS})
+add_executable(cysnic_tests 
+    tests/test_kf.cpp
+    src/tracker.cpp
+)
+target_compile_options(cysnic_tests PRIVATE ${CYSNIC_FLAGS})
 target_link_libraries(cysnic_tests gtest_main ${OpenCV_LIBS} Eigen3::Eigen fftw3 spdlog::spdlog)
 include(GoogleTest)
 gtest_discover_tests(cysnic_tests)

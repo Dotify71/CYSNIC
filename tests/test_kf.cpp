@@ -5,11 +5,31 @@
 
 using namespace cysnic;
 
+class MockTracker : public cysnic::ITrackerBackend {
+public:
+    bool shouldFail = false;
+    cv::Rect2d nextBox;
+    
+    void init(const cv::Mat&, const cv::Rect2d& box) override {
+        nextBox = box;
+    }
+    
+    bool update(const cv::Mat&, cv::Rect2d& box) override {
+        if (shouldFail) return false;
+        box = nextBox;
+        return true;
+    }
+};
+
 class KFTest : public ::testing::Test {
 protected:
-    TargetTracker tracker;
+    std::shared_ptr<MockTracker> mockTracker;
+    std::unique_ptr<TargetTracker> tracker;
+    
     void SetUp() override {
         spdlog::set_level(spdlog::level::off); // Disable logs for clean test output
+        mockTracker = std::make_shared<MockTracker>();
+        tracker = std::make_unique<TargetTracker>(mockTracker);
     }
 };
 
@@ -17,60 +37,64 @@ TEST_F(KFTest, TestFullUpdateLoop) {
     // 1. Init
     cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
     cv::Rect2d initialBox(10, 10, 20, 20);
-    // Draw a prominent feature so OpenCV KCF locks on
-    cv::rectangle(dummyFrame, initialBox, cv::Scalar(255, 255, 255), cv::FILLED);
     
-    EXPECT_TRUE(tracker.init(dummyFrame, initialBox, 1));
-    EXPECT_FALSE(tracker.getOcclusionState());
+    EXPECT_TRUE(tracker->init(dummyFrame, initialBox, 1));
+    EXPECT_FALSE(tracker->getOcclusionState());
     
     // 2. Normal update
-    cv::Mat nextFrame = cv::Mat::zeros(100, 100, CV_8UC3);
-    cv::Rect2d movedBox(11, 11, 20, 20);
-    cv::rectangle(nextFrame, movedBox, cv::Scalar(255, 255, 255), cv::FILLED);
-    
-    auto result = tracker.update(nextFrame);
+    mockTracker->nextBox = cv::Rect2d(11, 11, 20, 20);
+    auto result = tracker->update(dummyFrame);
     EXPECT_TRUE(result.has_value());
-    EXPECT_FALSE(tracker.getOcclusionState()); // Should still be tracking
+    EXPECT_FALSE(tracker->getOcclusionState()); // Should still be tracking
     
-    // 3. Occlusion: Black frame causes tracking failure
-    cv::Mat blackFrame = cv::Mat::zeros(100, 100, CV_8UC3);
-    auto occludedResult = tracker.update(blackFrame);
+    // 3. Occlusion: Tracker fails
+    mockTracker->shouldFail = true;
+    auto occludedResult = tracker->update(dummyFrame);
     EXPECT_TRUE(occludedResult.has_value());
-    EXPECT_TRUE(tracker.getOcclusionState()); // Entered occlusion
+    EXPECT_TRUE(tracker->getOcclusionState()); // Entered occlusion
     
     // 4. Recovery: Target reappears near predicted location
-    cv::Mat recoveryFrame = cv::Mat::zeros(100, 100, CV_8UC3);
-    cv::Rect2d recoveryBox = occludedResult.value();
-    cv::rectangle(recoveryFrame, recoveryBox, cv::Scalar(255, 255, 255), cv::FILLED);
+    mockTracker->shouldFail = false;
+    mockTracker->nextBox = occludedResult.value();
     
-    auto recoveredResult = tracker.update(recoveryFrame);
+    auto recoveredResult = tracker->update(dummyFrame);
     EXPECT_TRUE(recoveredResult.has_value());
-    EXPECT_FALSE(tracker.getOcclusionState()); // Exited occlusion and fully recovered
+    EXPECT_FALSE(tracker->getOcclusionState()); // Exited occlusion and fully recovered
 }
 
 TEST_F(KFTest, TestRotationRecoveryPath) {
     // 1. Init
     cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
     cv::Rect2d initialBox(40, 40, 20, 20);
-    // Draw a prominent asymmetric feature so rotation is detectable
+    // Draw a prominent asymmetric feature so rotation is detectable by FFTW
     cv::rectangle(dummyFrame, cv::Rect(40, 40, 20, 10), cv::Scalar(255, 255, 255), cv::FILLED);
     
-    EXPECT_TRUE(tracker.init(dummyFrame, initialBox, 1));
+    EXPECT_TRUE(tracker->init(dummyFrame, initialBox, 1));
     
     // 2. Occlusion
-    cv::Mat blackFrame = cv::Mat::zeros(100, 100, CV_8UC3);
-    tracker.update(blackFrame);
-    EXPECT_TRUE(tracker.getOcclusionState());
+    mockTracker->shouldFail = true;
+    tracker->update(dummyFrame);
+    EXPECT_TRUE(tracker->getOcclusionState());
     
     // 3. Rotated target appears
     cv::Mat rotatedFrame = cv::Mat::zeros(100, 100, CV_8UC3);
     // Draw same feature but rotated 90 degrees
     cv::rectangle(rotatedFrame, cv::Rect(40, 40, 10, 20), cv::Scalar(255, 255, 255), cv::FILLED);
     
-    auto result = tracker.update(rotatedFrame);
+    // Recovery will try to detect rotation. If it triggers, it re-initializes cvTracker on rotated ROI
+    // Since MockTracker just takes the ROI box, it will succeed.
+    mockTracker->shouldFail = false;
     
-    // Test verifies that the FFTW execution path runs without crashing or memory leaks
+    auto result = tracker->update(rotatedFrame);
+    
+    // We explicitly assert that occlusion is cleared after rotation recovery
     EXPECT_TRUE(result.has_value());
+    EXPECT_FALSE(tracker->getOcclusionState());
+    
+    // Verify mapped bounding box
+    cv::Rect2d recoveredBox = result.value();
+    EXPECT_GE(recoveredBox.x, 0.0);
+    EXPECT_GE(recoveredBox.y, 0.0);
 }
 
 TEST_F(KFTest, TestInitBoundsClamping) {
@@ -79,11 +103,11 @@ TEST_F(KFTest, TestInitBoundsClamping) {
     // Pass a bounding box that exceeds frame dimensions
     cv::Rect2d outOfBoundsBox(-10, 50, 200, 200);
     
-    bool initialized = tracker.init(dummyFrame, outOfBoundsBox, 2);
+    bool initialized = tracker->init(dummyFrame, outOfBoundsBox, 2);
     EXPECT_TRUE(initialized);
     
     // Ensure the tracker clamped it within [0, 0, 100, 100]
-    cv::Rect2d clampedBox = tracker.getBoundingBox();
+    cv::Rect2d clampedBox = tracker->getBoundingBox();
     EXPECT_GE(clampedBox.x, 0.0);
     EXPECT_GE(clampedBox.y, 0.0);
     EXPECT_LE(clampedBox.x + clampedBox.width, 100.0);

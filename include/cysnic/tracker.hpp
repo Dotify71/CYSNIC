@@ -69,9 +69,18 @@ struct TrackTarget {
     cv::Mat logPolar_initial;
 };
 
+// Interface for tracking backend to allow mock injection
+class ITrackerBackend {
+public:
+    virtual ~ITrackerBackend() = default;
+    virtual void init(const cv::Mat& frame, const cv::Rect2d& box) = 0;
+    virtual bool update(const cv::Mat& frame, cv::Rect2d& box) = 0;
+};
+
 class TargetTracker {
 public:
     TargetTracker();
+    TargetTracker(std::shared_ptr<ITrackerBackend> customTracker);
     ~TargetTracker();
 
     // Rule of Five to safely manage FFTW raw pointers
@@ -97,7 +106,7 @@ public:
     }
     cv::Rect2d getBoundingBox() const { return currentTarget.boundingBox; }
 private:
-    cv::Ptr<cv::Tracker> cvTracker;
+    std::shared_ptr<ITrackerBackend> cvTracker;
     TrackTarget currentTarget;
     
     bool isOccluded = false;
