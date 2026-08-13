@@ -346,9 +346,15 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     
                     cv::Point2f globalCenter(gx + paddedBox.x, gy + paddedBox.y);
                     
-                    // Update the real bounding box and clamp its top-left coordinates so it doesn't crash ROI extractors
-                    currentTarget.boundingBox.x = globalCenter.x - currentTarget.boundingBox.width / 2.0;
-                    currentTarget.boundingBox.y = globalCenter.y - currentTarget.boundingBox.height / 2.0;
+                    // Update the real bounding box and clamp it cleanly using cv::Rect2d intersection
+                    cv::Rect2d newGlobalBox;
+                    newGlobalBox.x = globalCenter.x - currentTarget.boundingBox.width / 2.0;
+                    newGlobalBox.y = globalCenter.y - currentTarget.boundingBox.height / 2.0;
+                    newGlobalBox.width = currentTarget.boundingBox.width;
+                    newGlobalBox.height = currentTarget.boundingBox.height;
+                    
+                    // Strictly intersect with the frame boundaries to ensure safety without ad-hoc truncation
+                    currentTarget.boundingBox = newGlobalBox & cv::Rect2d(0, 0, frame.cols, frame.rows);
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;

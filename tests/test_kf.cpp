@@ -83,9 +83,11 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     
     // Recovery will try to detect rotation. If it triggers, it re-initializes cvTracker on rotated ROI
     // Since MockTracker just takes the ROI box, it will succeed. 
-    // We explicitly feed it a box far enough away to FAIL physics gating, forcing recoverRotation() to fire.
+    // We provide a realistic local detection offset for the MockTracker.
+    // The padded ROI will be 40x40. A target detected near its center would be around [10, 10, 20, 20].
+    // We explicitly feed it an offset box [12, 12, 20, 20] to ensure the affine remap actually moves it.
     mockTracker->shouldFail = false;
-    mockTracker->nextBox = cv::Rect2d(0, 0, 20, 20); // The returned ROI box. The padding logic handles offsets.
+    mockTracker->nextBox = cv::Rect2d(12, 12, 20, 20); 
     
     auto result = tracker->update(rotatedFrame);
     
@@ -93,16 +95,23 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     EXPECT_TRUE(result.has_value());
     EXPECT_FALSE(tracker->getOcclusionState());
     
-    // Verify mapped bounding box dimensions are preserved exactly (not truncated)
     cv::Rect2d recoveredBox = result.value();
+    
+    // Validate that the new tracking box has proper frame bounds intersection (width/height strictly preserved if entirely inside frame)
     EXPECT_DOUBLE_EQ(recoveredBox.width, 20.0);
     EXPECT_DOUBLE_EQ(recoveredBox.height, 20.0);
     
-    // Verify mapped bounding box coordinates mathematically.
-    // The remap should produce something mathematically valid, regardless of mock offset.
-    // We just ensure it's calculated.
-    EXPECT_TRUE(std::isfinite(recoveredBox.x));
-    EXPECT_TRUE(std::isfinite(recoveredBox.y));
+    // Validate the remapped global coordinates.
+    // Given the target was near center (50, 50) and we gave it a small 2px offset (22, 22 local center vs 20, 20 ROI center)
+    // The rotated coordinates mapped back to global space should be approximately near (50, 50) +/- the small rotation offset.
+    // If the inverse affine remap is completely broken, it will map far outside this neighborhood.
+    double expectedCenterX = 50.0;
+    double expectedCenterY = 50.0;
+    double actualCenterX = recoveredBox.x + recoveredBox.width / 2.0;
+    double actualCenterY = recoveredBox.y + recoveredBox.height / 2.0;
+    
+    EXPECT_NEAR(actualCenterX, expectedCenterX, 5.0);
+    EXPECT_NEAR(actualCenterY, expectedCenterY, 5.0);
 }
 
 TEST_F(KFTest, TestInitBoundsClamping) {
