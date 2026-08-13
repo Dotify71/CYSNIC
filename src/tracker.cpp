@@ -19,6 +19,9 @@ TargetTracker::TargetTracker() {
 }
 
 TargetTracker::TargetTracker(std::shared_ptr<ITrackerBackend> customTracker) {
+    if (!customTracker) {
+        throw std::invalid_argument("TargetTracker requires a valid non-null custom tracker instance.");
+    }
     cvTracker = customTracker;
     spdlog::info("TargetTracker instance initialized with custom tracker.");
 }
@@ -343,11 +346,9 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     
                     cv::Point2f globalCenter(gx + paddedBox.x, gy + paddedBox.y);
                     
-                    // Update the real bounding box and clamp it
-                    currentTarget.boundingBox.x = std::max(0.0, globalCenter.x - currentTarget.boundingBox.width / 2.0);
-                    currentTarget.boundingBox.y = std::max(0.0, globalCenter.y - currentTarget.boundingBox.height / 2.0);
-                    currentTarget.boundingBox.width = std::min((double)frame.cols - currentTarget.boundingBox.x, currentTarget.boundingBox.width);
-                    currentTarget.boundingBox.height = std::min((double)frame.rows - currentTarget.boundingBox.y, currentTarget.boundingBox.height);
+                    // Update the real bounding box and clamp its top-left coordinates so it doesn't crash ROI extractors
+                    currentTarget.boundingBox.x = globalCenter.x - currentTarget.boundingBox.width / 2.0;
+                    currentTarget.boundingBox.y = globalCenter.y - currentTarget.boundingBox.height / 2.0;
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;

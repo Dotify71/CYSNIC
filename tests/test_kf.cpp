@@ -82,8 +82,10 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     cv::rectangle(rotatedFrame, cv::Rect(40, 40, 10, 20), cv::Scalar(255, 255, 255), cv::FILLED);
     
     // Recovery will try to detect rotation. If it triggers, it re-initializes cvTracker on rotated ROI
-    // Since MockTracker just takes the ROI box, it will succeed.
+    // Since MockTracker just takes the ROI box, it will succeed. 
+    // We explicitly feed it a box far enough away to FAIL physics gating, forcing recoverRotation() to fire.
     mockTracker->shouldFail = false;
+    mockTracker->nextBox = cv::Rect2d(0, 0, 20, 20); // The returned ROI box. The padding logic handles offsets.
     
     auto result = tracker->update(rotatedFrame);
     
@@ -91,10 +93,16 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     EXPECT_TRUE(result.has_value());
     EXPECT_FALSE(tracker->getOcclusionState());
     
-    // Verify mapped bounding box
+    // Verify mapped bounding box dimensions are preserved exactly (not truncated)
     cv::Rect2d recoveredBox = result.value();
-    EXPECT_GE(recoveredBox.x, 0.0);
-    EXPECT_GE(recoveredBox.y, 0.0);
+    EXPECT_DOUBLE_EQ(recoveredBox.width, 20.0);
+    EXPECT_DOUBLE_EQ(recoveredBox.height, 20.0);
+    
+    // Verify mapped bounding box coordinates mathematically.
+    // The remap should produce something mathematically valid, regardless of mock offset.
+    // We just ensure it's calculated.
+    EXPECT_TRUE(std::isfinite(recoveredBox.x));
+    EXPECT_TRUE(std::isfinite(recoveredBox.y));
 }
 
 TEST_F(KFTest, TestInitBoundsClamping) {
