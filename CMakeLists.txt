@@ -54,7 +54,7 @@ FetchContent_MakeAvailable(googletest)
 include_directories(${OpenCV_INCLUDE_DIRS} include ${fftw_SOURCE_DIR}/api)
 
 # Military-Grade Compiler Flags
-set(MIL_FLAGS -Wall -Wextra -Wpedantic -Werror -O3 -march=native)
+set(MIL_FLAGS -Wall -Wextra -Wpedantic -Werror -O3)
 
 add_executable(cysnic_tracker 
     src/main.cpp

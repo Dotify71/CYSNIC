@@ -31,6 +31,42 @@ TEST_F(KFTest, TestOcclusionRecovery) {
     // The tracker should return an estimated box but enter occlusion state
     EXPECT_TRUE(result.has_value());
     EXPECT_TRUE(tracker.getOcclusionState());
+    
+    // Simulate reacquisition: provide a frame where the target is clearly visible again
+    // In our mock, if physics gating passes (since it's close to predicted center), it should recover.
+    // We will place the target exactly at the predicted center to ensure it passes gating.
+    cv::Rect2d predictedBox = result.value();
+    cv::Mat recoveryFrame = cv::Mat::zeros(100, 100, CV_8UC3);
+    // Draw something in the box to simulate a target
+    cv::rectangle(recoveryFrame, predictedBox, cv::Scalar(255, 255, 255), cv::FILLED);
+    
+    auto recoveryResult = tracker.update(recoveryFrame);
+    
+    // The tracker should now have recovered
+    EXPECT_TRUE(recoveryResult.has_value());
+    EXPECT_FALSE(tracker.getOcclusionState());
+}
+
+TEST_F(KFTest, TestInitBoundsClamping) {
+    cv::Mat dummyFrame = cv::Mat::zeros(100, 100, CV_8UC3);
+    
+    // Pass a bounding box that exceeds frame dimensions
+    cv::Rect2d outOfBoundsBox(-10, 50, 200, 200);
+    
+    bool initialized = tracker.init(dummyFrame, outOfBoundsBox, 2);
+    EXPECT_TRUE(initialized);
+    
+    // Ensure the tracker clamped it within [0, 0, 100, 100]
+    cv::Rect2d clampedBox = tracker.getBoundingBox();
+    EXPECT_GE(clampedBox.x, 0.0);
+    EXPECT_GE(clampedBox.y, 0.0);
+    EXPECT_LE(clampedBox.x + clampedBox.width, 100.0);
+    EXPECT_LE(clampedBox.y + clampedBox.height, 100.0);
+    
+    // x should be clamped to 0 from -10
+    EXPECT_DOUBLE_EQ(clampedBox.x, 0.0);
+    // width should be clamped to 100 (since frame is 100 wide)
+    EXPECT_DOUBLE_EQ(clampedBox.width, 100.0);
 }
 
 TEST(KFMathTest, EigenMatrixProperties) {

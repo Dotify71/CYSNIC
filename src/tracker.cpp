@@ -12,18 +12,7 @@ TargetTracker::TargetTracker() {
 }
 
 TargetTracker::~TargetTracker() {
-    if (currentTarget.fftw_initialized) {
-        fftw_destroy_plan(currentTarget.p1);
-        fftw_destroy_plan(currentTarget.p2);
-        fftw_destroy_plan(currentTarget.p3);
-        fftw_free(currentTarget.in1);
-        fftw_free(currentTarget.in2);
-        fftw_free(currentTarget.out1);
-        fftw_free(currentTarget.out2);
-        fftw_free(currentTarget.cross);
-        fftw_free(currentTarget.spatial);
-        spdlog::debug("TargetTracker FFTW memory freed.");
-    }
+    // FFTW memory is now safely managed by the FftwState RAII wrapper.
 }
 
 void TargetTracker::setupKalmanFilter() {
@@ -115,25 +104,33 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     currentTarget.state(2) = 0.0f;
     currentTarget.state(3) = 0.0f;
     
-    // Allocate FFTW memory for Zero-Allocation Loop
-    int rows = currentTarget.logPolar_initial.rows;
-    int cols = currentTarget.logPolar_initial.cols;
-    int N = rows * cols;
-    
-    currentTarget.in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.cross = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    currentTarget.spatial = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    // Allocate FFTW memory with safety check
+    currentTarget.fftw.in1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.fftw.in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.fftw.out1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.fftw.out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.fftw.cross = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    currentTarget.fftw.spatial = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
 
-    currentTarget.p1 = fftw_plan_dft_2d(rows, cols, currentTarget.in1, currentTarget.out1, FFTW_FORWARD, FFTW_MEASURE);
-    currentTarget.p2 = fftw_plan_dft_2d(rows, cols, currentTarget.in2, currentTarget.out2, FFTW_FORWARD, FFTW_MEASURE);
-    currentTarget.p3 = fftw_plan_dft_2d(rows, cols, currentTarget.cross, currentTarget.spatial, FFTW_BACKWARD, FFTW_MEASURE);
-    currentTarget.fftw_initialized = true;
+    if (!currentTarget.fftw.in1 || !currentTarget.fftw.in2 || !currentTarget.fftw.out1 || 
+        !currentTarget.fftw.out2 || !currentTarget.fftw.cross || !currentTarget.fftw.spatial) {
+        spdlog::error("FFTW memory allocation failed in init().");
+        return false; // RAII will free any partial allocations
+    }
+
+    currentTarget.fftw.p1 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.in1, currentTarget.fftw.out1, FFTW_FORWARD, FFTW_MEASURE);
+    currentTarget.fftw.p2 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.in2, currentTarget.fftw.out2, FFTW_FORWARD, FFTW_MEASURE);
+    currentTarget.fftw.p3 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.cross, currentTarget.fftw.spatial, FFTW_BACKWARD, FFTW_MEASURE);
     
-    cvTracker->init(frame, boundingBox);
-    spdlog::info("TargetTracker ID {} Locked on [{:.1f}, {:.1f}]", targetId, boundingBox.x, boundingBox.y);
+    if (!currentTarget.fftw.p1 || !currentTarget.fftw.p2 || !currentTarget.fftw.p3) {
+        spdlog::error("FFTW plan creation failed in init().");
+        return false;
+    }
+    
+    currentTarget.fftw.initialized = true;
+    
+    cvTracker->init(frame, safeBox); // Use the clamped safeBox for internal tracker
+    spdlog::info("TargetTracker ID {} Locked on [{:.1f}, {:.1f}]", targetId, safeBox.x, safeBox.y);
     return true;
 }
 
@@ -196,7 +193,7 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
     int cols = initial64f.cols;
     int N = rows * cols;
 
-    if (!currentTarget.fftw_initialized) {
+    if (!currentTarget.fftw.initialized) {
         spdlog::error("FFTW Memory not initialized!");
         return 0.0;
     }
@@ -212,37 +209,37 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
             double wx = 0.5 * (1 - cos(2 * M_PI * c / (cols - 1.0)));
             double w = wy * wx;
             
-            currentTarget.in1[r * cols + c][0] = val1 * w;
-            currentTarget.in1[r * cols + c][1] = 0.0;
-            currentTarget.in2[r * cols + c][0] = val2 * w;
-            currentTarget.in2[r * cols + c][1] = 0.0;
+            currentTarget.fftw.in1[r * cols + c][0] = val1 * w;
+            currentTarget.fftw.in1[r * cols + c][1] = 0.0;
+            currentTarget.fftw.in2[r * cols + c][0] = val2 * w;
+            currentTarget.fftw.in2[r * cols + c][1] = 0.0;
         }
     }
 
-    fftw_execute(currentTarget.p1);
-    fftw_execute(currentTarget.p2);
+    fftw_execute(currentTarget.fftw.p1);
+    fftw_execute(currentTarget.fftw.p2);
 
     // Cross-power spectrum
     for (int i = 0; i < N; i++) {
-        double r1 = currentTarget.out1[i][0], i1 = currentTarget.out1[i][1];
-        double r2 = currentTarget.out2[i][0], i2 = currentTarget.out2[i][1];
+        double r1 = currentTarget.fftw.out1[i][0], i1 = currentTarget.fftw.out1[i][1];
+        double r2 = currentTarget.fftw.out2[i][0], i2 = currentTarget.fftw.out2[i][1];
         
         double cr = r1 * r2 + i1 * i2;
         double ci = i1 * r2 - r1 * i2;
         double mag = sqrt(cr * cr + ci * ci) + 1e-5;
         
-        currentTarget.cross[i][0] = cr / mag;
-        currentTarget.cross[i][1] = ci / mag;
+        currentTarget.fftw.cross[i][0] = cr / mag;
+        currentTarget.fftw.cross[i][1] = ci / mag;
     }
 
-    fftw_execute(currentTarget.p3);
+    fftw_execute(currentTarget.fftw.p3);
 
     // Find peak
     double max_val = -1e9;
     int max_r = 0, max_c = 0;
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
-            double val = currentTarget.spatial[r * cols + c][0];
+            double val = currentTarget.fftw.spatial[r * cols + c][0];
             if (val > max_val) {
                 max_val = val;
                 max_r = r;
@@ -271,7 +268,7 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
     // 3. Occlusion & Confidence Management
     if (!found) {
         if (!isOccluded) {
-            spdlog::warn("Target ID {} occluded! Switching to X-Ray EKF Prediction.", currentTarget.id);
+            spdlog::warn("Target ID {} occluded! Switching to X-Ray KF Prediction.", currentTarget.id);
         }
         isOccluded = true;
         // If occluded, use Kalman prediction as the box location
@@ -298,9 +295,30 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
             // Attempt rotation recovery with FFTW if physics gating still fails
             double angleShift = recoverRotation(frame, currentTarget.boundingBox);
             if (std::abs(angleShift) > 5.0) {
-                spdlog::debug("Rotation offset detected: {:.1f} degrees.", angleShift);
-                // In a full pipeline, we would warp the image by -angleShift and re-evaluate cvTracker
-                // For this implementation, we apply the shift to state estimates dynamically
+                spdlog::debug("Rotation offset detected: {:.1f} degrees. Applying warp affine.", angleShift);
+                
+                // We define an ROI padded around the predicted location to apply rotation recovery
+                cv::Rect2d paddedBox = currentTarget.boundingBox;
+                paddedBox.x = std::max(0.0, paddedBox.x - paddedBox.width/2.0);
+                paddedBox.y = std::max(0.0, paddedBox.y - paddedBox.height/2.0);
+                paddedBox.width = std::min(frame.cols - paddedBox.x, paddedBox.width * 2.0);
+                paddedBox.height = std::min(frame.rows - paddedBox.y, paddedBox.height * 2.0);
+                
+                if (paddedBox.width > 0 && paddedBox.height > 0) {
+                    cv::Mat roiFrame = frame(paddedBox).clone();
+                    cv::Point2f center(roiFrame.cols/2.0f, roiFrame.rows/2.0f);
+                    cv::Mat rotMatrix = cv::getRotationMatrix2D(center, -angleShift, 1.0);
+                    cv::Mat rotatedRoi;
+                    cv::warpAffine(roiFrame, rotatedRoi, rotMatrix, roiFrame.size(), cv::INTER_LINEAR);
+                    
+                    // Re-evaluate underlying tracker on the rotated ROI
+                    cv::Rect2d localBox = currentTarget.boundingBox;
+                    localBox.x -= paddedBox.x;
+                    localBox.y -= paddedBox.y;
+                    
+                    cvTracker->init(rotatedRoi, localBox); // Re-initialize lock on rotated frame
+                    spdlog::info("Target ID {} lock re-established via rotation recovery.", currentTarget.id);
+                }
             }
             return currentTarget.boundingBox; 
         }

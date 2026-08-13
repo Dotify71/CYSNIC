@@ -9,7 +9,7 @@
 
 void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occluded, double dx = 0, double dy = 0) {
     // Dynamic contrast color based on background brightness
-    cv::Rect safeBox = box;
+    cv::Rect safeBox(cvRound(box.x), cvRound(box.y), cvRound(box.width), cvRound(box.height));
     safeBox.x = std::max(0, safeBox.x);
     safeBox.y = std::max(0, safeBox.y);
     safeBox.width = std::min(frame.cols - safeBox.x, safeBox.width);
@@ -32,36 +32,38 @@ void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occlude
     
     if (occluded) {
         // Draw X-RAY dashed representation (or just standard corners with crosshair)
-        cv::Point center(box.x + box.width / 2, box.y + box.height / 2);
+        cv::Point center(cvRound(box.x + box.width / 2.0), cvRound(box.y + box.height / 2.0));
         cv::drawMarker(frame, center, hudColor, cv::MARKER_CROSS, 20, 1, lineType);
         
         // Dashed box for X-Ray
-        cv::rectangle(frame, box, hudColor, 1, lineType);
+        cv::Rect drawBox(cvRound(box.x), cvRound(box.y), cvRound(box.width), cvRound(box.height));
+        cv::rectangle(frame, drawBox, hudColor, 1, lineType);
         
         std::string status = "STATUS: X-RAY / COASTING";
-        cv::putText(frame, status, cv::Point(box.x, box.y - 10), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
+        cv::putText(frame, status, cv::Point(cvRound(box.x), cvRound(box.y) - 10), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
     } else {
+        int bx = cvRound(box.x), by = cvRound(box.y), bw = cvRound(box.width), bh = cvRound(box.height);
         // Top left
-        cv::line(frame, cv::Point(box.x, box.y), cv::Point(box.x + cornerLen, box.y), hudColor, t, lineType);
-        cv::line(frame, cv::Point(box.x, box.y), cv::Point(box.x, box.y + cornerLen), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx, by), cv::Point(bx + cornerLen, by), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx, by), cv::Point(bx, by + cornerLen), hudColor, t, lineType);
         // Top right
-        cv::line(frame, cv::Point(box.x + box.width, box.y), cv::Point(box.x + box.width - cornerLen, box.y), hudColor, t, lineType);
-        cv::line(frame, cv::Point(box.x + box.width, box.y), cv::Point(box.x + box.width, box.y + cornerLen), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx + bw, by), cv::Point(bx + bw - cornerLen, by), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx + bw, by), cv::Point(bx + bw, by + cornerLen), hudColor, t, lineType);
         // Bottom left
-        cv::line(frame, cv::Point(box.x, box.y + box.height), cv::Point(box.x + cornerLen, box.y + box.height), hudColor, t, lineType);
-        cv::line(frame, cv::Point(box.x, box.y + box.height), cv::Point(box.x, box.y + box.height - cornerLen), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx, by + bh), cv::Point(bx + cornerLen, by + bh), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx, by + bh), cv::Point(bx, by + bh - cornerLen), hudColor, t, lineType);
         // Bottom right
-        cv::line(frame, cv::Point(box.x + box.width, box.y + box.height), cv::Point(box.x + box.width - cornerLen, box.y + box.height), hudColor, t, lineType);
-        cv::line(frame, cv::Point(box.x + box.width, box.y + box.height), cv::Point(box.x + box.width, box.y + box.height - cornerLen), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx + bw, by + bh), cv::Point(bx + bw - cornerLen, by + bh), hudColor, t, lineType);
+        cv::line(frame, cv::Point(bx + bw, by + bh), cv::Point(bx + bw, by + bh - cornerLen), hudColor, t, lineType);
         
         // Status Text
         std::string status = "STATUS: TRACK LOCKED";
-        cv::putText(frame, status, cv::Point(box.x, box.y - 10), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
+        cv::putText(frame, status, cv::Point(bx, by - 10), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
     }
     
     // Calculations / Telemetry placed strictly outside the box
     std::string telemetry = fmt::format("ID: {:02d} | POS: [{:.1f}, {:.1f}] | VEL: [{:.1f}, {:.1f}]", id, box.x, box.y, dx, dy);
-    cv::putText(frame, telemetry, cv::Point(box.x, box.y + box.height + 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
+    cv::putText(frame, telemetry, cv::Point(cvRound(box.x), cvRound(box.y + box.height) + 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
 }
 int main(int argc, char** argv) {
     spdlog::set_level(spdlog::level::debug); // Set global log level
@@ -159,7 +161,7 @@ int main(int argc, char** argv) {
                 bool occluded = trackers[i]->getOcclusionState();
                 auto vel = trackers[i]->getVelocity();
                 
-                // Draw HUD with actual EKF velocity
+                // Draw HUD with actual KF velocity
                 drawTacticalHUD(frame, box, i+1, occluded, vel.first, vel.second);
             } else {
                 cv::putText(frame, "T" + std::to_string(i+1) + " LOST", cv::Point(20, 50 + i * 30), 
