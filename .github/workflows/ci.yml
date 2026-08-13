@@ -7,35 +7,45 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-and-test:
+  build-standard:
     runs-on: ubuntu-latest
-    
     steps:
     - uses: actions/checkout@v3
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake g++ libopencv-dev fftw3-dev libtbb-dev
+    - name: Configure CMake
+      run: cmake -B build
+    - name: Build
+      run: cmake --build build -j$(nproc)
+    - name: Test
+      run: cd build && ctest --output-on-failure
 
+  build-tidy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
     - name: Install System Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake g++ libopencv-dev fftw3-dev libtbb-dev clang-tidy
-
-    - name: Configure CMake (Standard)
-      run: cmake -B build
-
-    - name: Build (Standard)
-      run: cmake --build build -j$(nproc)
-
-    - name: Test (Standard)
-      run: cd build && ctest --output-on-failure
-
+    - name: Configure CMake (Clang-Tidy)
+      run: cmake -B build_tidy -DUSE_CLANG_TIDY=ON
     - name: Run Clang-Tidy Static Analysis
-      run: |
-        cmake -B build_tidy -DUSE_CLANG_TIDY=ON
-        cmake --build build_tidy -j$(nproc)
+      run: cmake --build build_tidy -j$(nproc)
 
+  build-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake g++ libopencv-dev fftw3-dev libtbb-dev
+    - name: Configure CMake (Sanitizers)
+      run: cmake -B build_sanitizers -DUSE_SANITIZERS=ON
     - name: Build with ASan and UBSan
-      run: |
-        cmake -B build_sanitizers -DUSE_SANITIZERS=ON
-        cmake --build build_sanitizers -j$(nproc)
-
+      run: cmake --build build_sanitizers -j$(nproc)
     - name: Test with Sanitizers
       run: cd build_sanitizers && ctest --output-on-failure

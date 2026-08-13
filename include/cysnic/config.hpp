@@ -25,11 +25,26 @@ struct TrackerConfig {
             nlohmann::json j;
             file >> j;
             TrackerConfig config;
-            if (j.contains("psrThreshold")) config.psrThreshold = j["psrThreshold"];
-            if (j.contains("maxOcclusionTime")) config.maxOcclusionTime = j["maxOcclusionTime"];
-            if (j.contains("driftBaseline")) config.driftBaseline = j["driftBaseline"];
-            if (j.contains("varianceCap")) config.varianceCap = j["varianceCap"];
-            if (j.contains("maxRotationShift")) config.maxRotationShift = j["maxRotationShift"];
+            if (j.contains("psrThreshold")) {
+                if (j["psrThreshold"] > 0) config.psrThreshold = j["psrThreshold"];
+                else spdlog::warn("Invalid psrThreshold in config.json. Using default {}.", config.psrThreshold);
+            }
+            if (j.contains("maxOcclusionTime")) {
+                if (j["maxOcclusionTime"] > 0) config.maxOcclusionTime = j["maxOcclusionTime"];
+                else spdlog::warn("Invalid maxOcclusionTime in config.json. Using default {}.", config.maxOcclusionTime);
+            }
+            if (j.contains("driftBaseline")) {
+                if (j["driftBaseline"] > 0) config.driftBaseline = j["driftBaseline"];
+                else spdlog::warn("Invalid driftBaseline in config.json. Using default {}.", config.driftBaseline);
+            }
+            if (j.contains("varianceCap")) {
+                if (j["varianceCap"] > 0) config.varianceCap = j["varianceCap"];
+                else spdlog::warn("Invalid varianceCap in config.json. Using default {}.", config.varianceCap);
+            }
+            if (j.contains("maxRotationShift")) {
+                if (j["maxRotationShift"] > 0) config.maxRotationShift = j["maxRotationShift"];
+                else spdlog::warn("Invalid maxRotationShift in config.json. Using default {}.", config.maxRotationShift);
+            }
             
             spdlog::info("Successfully loaded tracker configuration from {}", path);
             return config;

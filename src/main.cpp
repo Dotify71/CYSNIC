@@ -66,17 +66,29 @@ void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occlude
     std::string telemetry = fmt::format("ID: {:02d} | POS: [{:.1f}, {:.1f}] | VEL: [{:.1f}, {:.1f}]", id, box.x, box.y, dx, dy);
     cv::putText(frame, telemetry, cv::Point(cvRound(box.x), cvRound(box.y + box.height) + 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, hudColor, 1, lineType);
 }
-int main() {
+int main(int argc, char** argv) {
     spdlog::set_level(spdlog::level::info);
     
     // Load external configuration
     auto config = cysnic::TrackerConfig::load("config.json").value_or(cysnic::TrackerConfig());
 
-    cv::VideoCapture cap(0);
     spdlog::info("CYSNIC (Surveillance-Inspired UI Tracker) starting...");
 
+    if (argc < 2) {
+        spdlog::warn("Usage: {} <video_path_or_camera_id>. Defaulting to camera 0.", argv[0]);
+    }
+
+    std::string source = (argc >= 2) ? argv[1] : "0";
+    cv::VideoCapture cap;
+
+    if (source.length() == 1 && isdigit(source[0])) {
+        cap.open(std::stoi(source));
+    } else {
+        cap.open(source);
+    }
+
     if (!cap.isOpened()) {
-        spdlog::error("Failed to open camera 0");
+        spdlog::error("Failed to open video source: {}", source);
         return -1;
     }
 
@@ -104,7 +116,7 @@ int main() {
         }
         
         auto tracker = std::make_unique<cysnic::TargetTracker>(config);
-        if (tracker->init(frame, roi, targetId++)) {
+        if (tracker->init(grayFrame, roi, targetId++)) {
             trackers.push_back(std::move(tracker));
         } else {
             spdlog::warn("Failed to initialize tracker for ROI. Discarding.");
