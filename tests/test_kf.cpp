@@ -43,13 +43,13 @@ TEST_F(KFTest, TestFullUpdateLoop) {
     
     // 2. Normal update
     mockTracker->nextBox = cv::Rect2d(11, 11, 20, 20);
-    auto result = tracker->update(dummyFrame);
+    auto result = tracker->update(dummyFrame, 0.033);
     EXPECT_TRUE(result.has_value());
     EXPECT_FALSE(tracker->getOcclusionState()); // Should still be tracking
     
     // 3. Occlusion: Tracker fails
     mockTracker->shouldFail = true;
-    auto occludedResult = tracker->update(dummyFrame);
+    auto occludedResult = tracker->update(dummyFrame, 0.033);
     EXPECT_TRUE(occludedResult.has_value());
     EXPECT_TRUE(tracker->getOcclusionState()); // Entered occlusion
     
@@ -57,7 +57,7 @@ TEST_F(KFTest, TestFullUpdateLoop) {
     mockTracker->shouldFail = false;
     mockTracker->nextBox = occludedResult.value();
     
-    auto recoveredResult = tracker->update(dummyFrame);
+    auto recoveredResult = tracker->update(dummyFrame, 0.033);
     EXPECT_TRUE(recoveredResult.has_value());
     EXPECT_FALSE(tracker->getOcclusionState()); // Exited occlusion and fully recovered
 }
@@ -73,7 +73,7 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     
     // 2. Occlusion
     mockTracker->shouldFail = true;
-    tracker->update(dummyFrame);
+    tracker->update(dummyFrame, 0.033);
     EXPECT_TRUE(tracker->getOcclusionState());
     
     // 3. Rotated target appears
@@ -89,7 +89,7 @@ TEST_F(KFTest, TestRotationRecoveryPath) {
     mockTracker->shouldFail = false;
     mockTracker->nextBox = cv::Rect2d(12, 12, 20, 20); 
     
-    auto result = tracker->update(rotatedFrame);
+    auto result = tracker->update(rotatedFrame, 0.033);
     
     // We explicitly assert that occlusion is cleared after rotation recovery
     EXPECT_TRUE(result.has_value());
@@ -123,7 +123,7 @@ TEST_F(KFTest, TestRotationRecoveryOutOfBounds) {
     EXPECT_TRUE(tracker->init(dummyFrame, initialBox, 1));
     
     mockTracker->shouldFail = true;
-    tracker->update(dummyFrame);
+    tracker->update(dummyFrame, 0.033);
     EXPECT_TRUE(tracker->getOcclusionState());
     
     cv::Mat rotatedFrame = cv::Mat::zeros(100, 100, CV_8UC3);
@@ -133,7 +133,7 @@ TEST_F(KFTest, TestRotationRecoveryOutOfBounds) {
     mockTracker->shouldFail = false;
     mockTracker->nextBox = cv::Rect2d(1000, 1000, 20, 20); 
     
-    auto result = tracker->update(rotatedFrame);
+    auto result = tracker->update(rotatedFrame, 0.033);
     
     // The recovery should be rejected because the mapped box intersects to area <= 0
     EXPECT_FALSE(result.has_value());

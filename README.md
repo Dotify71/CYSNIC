@@ -1,6 +1,6 @@
-# CYSNIC Tactical Tracker
+# CYSNIC (Surveillance-Inspired UI Tracker)
 
-CYSNIC is a high-performance, multi-target tracking system built for Apple Silicon (M-series).
+CYSNIC is a high-performance, multi-target tracking system built for Apple Silicon (M-series). It features a dark-mode HUD skin mimicking surveillance and tactical aesthetics, built on a foundation of rigorous software engineering patterns.
 
 ## Prerequisites
 Before compiling the project, you must have OpenCV (version 4.x or higher) installed on your system. 

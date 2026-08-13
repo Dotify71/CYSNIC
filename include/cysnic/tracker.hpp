@@ -53,11 +53,11 @@ struct TrackTarget {
     int id;
     cv::Rect2d boundingBox; // Ensure this matches implementation
     
-    // Eigen-based Linear KF State (x, y, dx, dy)
-    Eigen::Vector4f state;
-    Eigen::Matrix4f P; // Estimate covariance
-    Eigen::Matrix4f Q; // Process noise covariance
-    Eigen::Matrix2f R; // Measurement noise covariance
+    // Eigen-based Linear KF State (x, y, w, h, dx, dy)
+    Eigen::Matrix<float, 6, 1> state;
+    Eigen::Matrix<float, 6, 6> P; // Estimate covariance
+    Eigen::Matrix<float, 6, 6> Q; // Process noise covariance
+    Eigen::Matrix<float, 4, 4> R; // Measurement noise covariance (x, y, w, h)
     
     double confidence; // Peak-to-Sidelobe Ratio (PSR)
     
@@ -92,8 +92,8 @@ public:
     // Initialize the tracker with the first frame and a bounding box
     bool init(const cv::Mat& frame, const cv::Rect2d& boundingBox, int targetId = 1);
     
-    // Update the tracker state with a new frame
-    std::optional<cv::Rect2d> update(const cv::Mat& frame, int targetId = 1);
+    // Update the tracker state with a new frame and dt (time since last frame)
+    std::optional<cv::Rect2d> update(const cv::Mat& frame, double dt, int targetId = 1);
     
     // Reset tracker
     void reset();
@@ -114,8 +114,8 @@ private:
     
     // Internal KF math and physics gating
     void setupKalmanFilter();
-    void predictKF();
-    void correctKF(const Eigen::Vector2f& measurement);
+    void predictKF(double dt);
+    void correctKF(const Eigen::Vector4f& measurement);
     bool checkPhysicsGating(const cv::Rect2d& newBox);
     
     // Rotation Recovery
@@ -123,3 +123,6 @@ private:
 };
 
 } // namespace cysnic
+
+// Free function to process multiple trackers in parallel, enabling integration testing without UI
+std::vector<std::optional<cv::Rect2d>> processTrackers(std::vector<std::unique_ptr<cysnic::TargetTracker>>& trackers, const cv::Mat& frame, double dt);

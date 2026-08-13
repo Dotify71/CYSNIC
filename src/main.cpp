@@ -67,7 +67,7 @@ void drawTacticalHUD(cv::Mat& frame, const cv::Rect2d& box, int id, bool occlude
 }
 int main(int argc, char** argv) {
     spdlog::set_level(spdlog::level::debug); // Set global log level
-    spdlog::info("CYSNIC Tactical Tracker starting...");
+    spdlog::info("CYSNIC (Surveillance-Inspired UI Tracker) starting...");
 
     if (argc < 2) {
         spdlog::error("Usage: {} <video_path_or_camera_id>", argv[0]);
@@ -138,7 +138,9 @@ int main(int argc, char** argv) {
         if (frame.empty()) break;
         
         auto currTime = std::chrono::high_resolution_clock::now();
-        double fps = 1e9 / std::chrono::duration_cast<std::chrono::nanoseconds>(currTime - prevTime).count();
+        double dt = std::chrono::duration_cast<std::chrono::nanoseconds>(currTime - prevTime).count() / 1e9;
+        if (dt <= 0.0) dt = 0.033; // Fallback to 30fps if timing is weird
+        double fps = 1.0 / dt;
         prevTime = currTime;
 
         cv::Mat grayFrame;
@@ -148,14 +150,8 @@ int main(int argc, char** argv) {
             grayFrame = frame;
         }
 
-        // Process all trackers in parallel using Intel TBB
-        std::vector<std::optional<cv::Rect2d>> results(trackers.size());
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, trackers.size()),
-            [&](const tbb::blocked_range<size_t>& r) {
-                for (size_t i = r.begin(); i != r.end(); ++i) {
-                    results[i] = trackers[i]->update(grayFrame);
-                }
-            });
+        // Process all trackers in parallel using extracted free function
+        std::vector<std::optional<cv::Rect2d>> results = processTrackers(trackers, grayFrame, dt);
 
         // Gather results and draw HUD
         for (size_t i = 0; i < results.size(); ++i) {

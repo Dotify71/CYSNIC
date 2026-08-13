@@ -11,7 +11,7 @@ include(FetchContent)
 FetchContent_Declare(
   eigen
   GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-  GIT_TAG        3.4.0
+  GIT_TAG        3147391d946bb4b6c68edd901f2add6ac1f31f8c # 3.4.0
 )
 FetchContent_MakeAvailable(eigen)
 
@@ -20,7 +20,7 @@ set(TBB_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   tbb
   GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
-  GIT_TAG        v2021.11.0
+  GIT_TAG        8b829acc65569019edb896c5150d427f288e8aba # v2021.11.0
 )
 FetchContent_MakeAvailable(tbb)
 
@@ -30,7 +30,7 @@ set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   fftw
   GIT_REPOSITORY https://github.com/FFTW/fftw3.git
-  GIT_TAG        fftw-3.3.10
+  GIT_TAG        7184fc796279cfa70e4ba62519ac2938054584e6 # fftw-3.3.10
 )
 FetchContent_MakeAvailable(fftw)
 
@@ -38,7 +38,7 @@ FetchContent_MakeAvailable(fftw)
 FetchContent_Declare(
   spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG        v1.12.0
+  GIT_TAG        7e635fca68d014934b4af8a1cf874f63989352b7 # v1.12.0
 )
 FetchContent_MakeAvailable(spdlog)
 
@@ -46,7 +46,7 @@ FetchContent_MakeAvailable(spdlog)
 FetchContent_Declare(
   googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG        v1.14.0
+  GIT_TAG        f8d7d77c06936315286eb55f8de22cd23c188571 # v1.14.0
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
@@ -68,6 +68,7 @@ target_link_libraries(cysnic_tracker ${OpenCV_LIBS} Eigen3::Eigen TBB::tbb fftw3
 enable_testing()
 add_executable(cysnic_tests 
     tests/test_kf.cpp
+    tests/test_main.cpp
     src/tracker.cpp
 )
 target_compile_options(cysnic_tests PRIVATE ${CYSNIC_FLAGS})

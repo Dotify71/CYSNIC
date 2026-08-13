@@ -5,16 +5,16 @@
 
 namespace cysnic {
 
-class KCFBackend : public ITrackerBackend {
+class MILBackend : public ITrackerBackend {
     cv::Ptr<cv::Tracker> tracker;
 public:
-    KCFBackend() { tracker = cv::TrackerKCF::create(); }
+    MILBackend() { tracker = cv::TrackerMIL::create(); }
     void init(const cv::Mat& frame, const cv::Rect2d& box) override { tracker->init(frame, box); }
     bool update(const cv::Mat& frame, cv::Rect2d& box) override { return tracker->update(frame, box); }
 };
 
 TargetTracker::TargetTracker() {
-    cvTracker = std::make_shared<KCFBackend>();
+    cvTracker = std::make_shared<MILBackend>();
     spdlog::info("TargetTracker instance initialized.");
 }
 
@@ -31,26 +31,24 @@ TargetTracker::~TargetTracker() {
 }
 
 void TargetTracker::setupKalmanFilter() {
-    // Initialize Eigen matrices
+    // Initialize Eigen matrices for 6D state (x, y, w, h, dx, dy)
     currentTarget.state.setZero();
     
     // Process noise covariance (Q)
-    currentTarget.Q = Eigen::Matrix4f::Identity() * 1e-4f;
+    currentTarget.Q = Eigen::Matrix<float, 6, 6>::Identity() * 1e-4f;
     
-    // Measurement noise covariance (R)
-    currentTarget.R = Eigen::Matrix2f::Identity() * 1e-1f;
+    // Measurement noise covariance (R) for (x, y, w, h)
+    currentTarget.R = Eigen::Matrix<float, 4, 4>::Identity() * 1e-1f;
     
     // Error covariance (P)
-    currentTarget.P = Eigen::Matrix4f::Identity() * 0.1f;
+    currentTarget.P = Eigen::Matrix<float, 6, 6>::Identity() * 0.1f;
 }
 
-void TargetTracker::predictKF() {
+void TargetTracker::predictKF(double dt) {
     // Transition matrix (F) for Constant Velocity model
-    Eigen::Matrix4f F;
-    F << 1, 0, 1, 0,
-         0, 1, 0, 1,
-         0, 0, 1, 0,
-         0, 0, 0, 1;
+    Eigen::Matrix<float, 6, 6> F = Eigen::Matrix<float, 6, 6>::Identity();
+    F(0, 4) = dt; // x += dx * dt
+    F(1, 5) = dt; // y += dy * dt
          
     // Predict state: x = F * x
     currentTarget.state = F * currentTarget.state;
@@ -59,26 +57,28 @@ void TargetTracker::predictKF() {
     currentTarget.P = F * currentTarget.P * F.transpose() + currentTarget.Q;
 }
 
-void TargetTracker::correctKF(const Eigen::Vector2f& measurement) {
-    // Measurement matrix (H) maps state (x,y,dx,dy) to measurement (x,y)
-    Eigen::Matrix<float, 2, 4> H;
-    H << 1, 0, 0, 0,
-         0, 1, 0, 0;
+void TargetTracker::correctKF(const Eigen::Vector4f& measurement) {
+    // Measurement matrix (H) maps state (x,y,w,h,dx,dy) to measurement (x,y,w,h)
+    Eigen::Matrix<float, 4, 6> H = Eigen::Matrix<float, 4, 6>::Zero();
+    H(0, 0) = 1;
+    H(1, 1) = 1;
+    H(2, 2) = 1;
+    H(3, 3) = 1;
          
     // Innovation (y) = z - H * x
-    Eigen::Vector2f y = measurement - H * currentTarget.state;
+    Eigen::Vector4f y = measurement - H * currentTarget.state;
     
     // Innovation covariance (S) = H * P * H^T + R
-    Eigen::Matrix2f S = H * currentTarget.P * H.transpose() + currentTarget.R;
+    Eigen::Matrix<float, 4, 4> S = H * currentTarget.P * H.transpose() + currentTarget.R;
     
     // Kalman Gain (K) = P * H^T * S^-1
-    Eigen::Matrix<float, 4, 2> K = currentTarget.P * H.transpose() * S.inverse();
+    Eigen::Matrix<float, 6, 4> K = currentTarget.P * H.transpose() * S.inverse();
     
     // Update state: x = x + K * y
     currentTarget.state = currentTarget.state + K * y;
     
     // Update covariance: P = (I - K * H) * P
-    Eigen::Matrix4f I = Eigen::Matrix4f::Identity();
+    Eigen::Matrix<float, 6, 6> I = Eigen::Matrix<float, 6, 6>::Identity();
     currentTarget.P = (I - K * H) * currentTarget.P;
 }
 
@@ -113,11 +113,13 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
     
     setupKalmanFilter();
     
-    // Initialize Kalman state with initial clamped bounding box center
+    // Initialize Kalman state with initial clamped bounding box center and size
     currentTarget.state(0) = safeBox.x + safeBox.width / 2.0f;
     currentTarget.state(1) = safeBox.y + safeBox.height / 2.0f;
-    currentTarget.state(2) = 0.0f;
-    currentTarget.state(3) = 0.0f;
+    currentTarget.state(2) = safeBox.width;
+    currentTarget.state(3) = safeBox.height;
+    currentTarget.state(4) = 0.0f; // dx
+    currentTarget.state(5) = 0.0f; // dy
     
     // Allocate FFTW memory with safety check
     int rows = currentTarget.logPolar_initial.rows;
@@ -137,9 +139,9 @@ bool TargetTracker::init(const cv::Mat& frame, const cv::Rect2d& boundingBox, in
         return false; // RAII will free any partial allocations
     }
 
-    currentTarget.fftw.p1 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.in1, currentTarget.fftw.out1, FFTW_FORWARD, FFTW_MEASURE);
-    currentTarget.fftw.p2 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.in2, currentTarget.fftw.out2, FFTW_FORWARD, FFTW_MEASURE);
-    currentTarget.fftw.p3 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.cross, currentTarget.fftw.spatial, FFTW_BACKWARD, FFTW_MEASURE);
+    currentTarget.fftw.p1 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.in1, currentTarget.fftw.out1, FFTW_FORWARD, FFTW_ESTIMATE);
+    currentTarget.fftw.p2 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.in2, currentTarget.fftw.out2, FFTW_FORWARD, FFTW_ESTIMATE);
+    currentTarget.fftw.p3 = fftw_plan_dft_2d(rows, cols, currentTarget.fftw.cross, currentTarget.fftw.spatial, FFTW_BACKWARD, FFTW_ESTIMATE);
     
     if (!currentTarget.fftw.p1 || !currentTarget.fftw.p2 || !currentTarget.fftw.p3) {
         spdlog::error("FFTW plan creation failed in init().");
@@ -269,15 +271,19 @@ double TargetTracker::recoverRotation(const cv::Mat& currentFrame, const cv::Rec
 
     double shift_y = max_r > rows / 2 ? max_r - rows : max_r;
     
+    currentTarget.confidence = max_val; // Store PSR equivalent peak
+    
     // The Y shift in log-polar corresponds to rotation in degrees
     double angle = shift_y * 360.0 / rows;
     return angle;
 }
 
-std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targetId*/) {
+std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, double dt, int /*targetId*/) {
     // 1. Predict state using Eigen KF
-    predictKF();
+    predictKF(dt);
     cv::Point2f predictedCenter(currentTarget.state(0), currentTarget.state(1));
+    float predictedWidth = std::max(1.0f, currentTarget.state(2));
+    float predictedHeight = std::max(1.0f, currentTarget.state(3));
     
     // 2. Update with underlying correlation filter backend
     cv::Rect2d newBox;
@@ -289,11 +295,11 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
             spdlog::warn("Target ID {} occluded! Switching to X-Ray KF Prediction.", currentTarget.id);
         }
         isOccluded = true;
-        // If occluded, use Kalman prediction as the box location
-        newBox.x = predictedCenter.x - currentTarget.boundingBox.width / 2.0;
-        newBox.y = predictedCenter.y - currentTarget.boundingBox.height / 2.0;
-        newBox.width = currentTarget.boundingBox.width;
-        newBox.height = currentTarget.boundingBox.height;
+        // If occluded, use Kalman prediction as the box location (allowing growth/shrinkage)
+        newBox.width = predictedWidth;
+        newBox.height = predictedHeight;
+        newBox.x = predictedCenter.x - newBox.width / 2.0;
+        newBox.y = predictedCenter.y - newBox.height / 2.0;
         currentTarget.boundingBox = newBox;
         return newBox; // Return estimated box without updating measurement
     }
@@ -306,12 +312,16 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
             spdlog::info("Target ID {} recovered from occlusion!", currentTarget.id);
             isOccluded = false;
             currentTarget.boundingBox = newBox;
-            Eigen::Vector2f measurement(newBox.x + newBox.width / 2.0f, newBox.y + newBox.height / 2.0f);
+            Eigen::Vector4f measurement(newBox.x + newBox.width / 2.0f, newBox.y + newBox.height / 2.0f, newBox.width, newBox.height);
             correctKF(measurement);
             return newBox;
         } else {
             // Attempt rotation recovery with FFTW if physics gating still fails
             double angleShift = recoverRotation(frame, currentTarget.boundingBox);
+            if (currentTarget.confidence < psrThreshold) {
+                spdlog::debug("Rotation recovery rejected: low confidence ({:.2f} < {:.2f})", currentTarget.confidence, psrThreshold);
+                return currentTarget.boundingBox;
+            }
             if (std::abs(angleShift) > 5.0) {
                 spdlog::debug("Rotation offset detected: {:.1f} degrees. Applying warp affine.", angleShift);
                 
@@ -363,8 +373,9 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
                     
                     // Clear occlusion and feed measurement to KF
                     isOccluded = false;
-                    Eigen::Vector2f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f, 
-                                                currentTarget.boundingBox.y + currentTarget.boundingBox.height / 2.0f);
+                    Eigen::Vector4f measurement(currentTarget.boundingBox.x + currentTarget.boundingBox.width / 2.0f, 
+                                                currentTarget.boundingBox.y + currentTarget.boundingBox.height / 2.0f,
+                                                currentTarget.boundingBox.width, currentTarget.boundingBox.height);
                     correctKF(measurement);
                     
                     spdlog::info("Target ID {} lock re-established via rotation recovery.", currentTarget.id);
@@ -386,7 +397,7 @@ std::optional<cv::Rect2d> TargetTracker::update(const cv::Mat& frame, int /*targ
     currentTarget.boundingBox = newBox;
     
     // Correct Eigen KF with new measurement
-    Eigen::Vector2f measurement(newBox.x + newBox.width / 2.0f, newBox.y + newBox.height / 2.0f);
+    Eigen::Vector4f measurement(newBox.x + newBox.width / 2.0f, newBox.y + newBox.height / 2.0f, newBox.width, newBox.height);
     correctKF(measurement);
     
     return newBox;
@@ -397,3 +408,14 @@ void TargetTracker::reset() {
 }
 
 } // namespace cysnic
+
+std::vector<std::optional<cv::Rect2d>> processTrackers(std::vector<std::unique_ptr<cysnic::TargetTracker>>& trackers, const cv::Mat& frame, double dt) {
+    std::vector<std::optional<cv::Rect2d>> results(trackers.size());
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, trackers.size()),
+        [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i != r.end(); ++i) {
+                results[i] = trackers[i]->update(frame, dt);
+            }
+        });
+    return results;
+}
